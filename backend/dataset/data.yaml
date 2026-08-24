@@ -1,0 +1,12 @@
+path: /home/user/app-pratyaksha/backend/dataset
+train: images/train
+val: images/val
+
+names:
+  0: Car
+  1: SUV
+  2: Bus
+  3: Truck
+  4: Auto
+  5: Bike
+  6: Plate

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "org_suryasanc",
+    "orgName": "SuryaSANC Enterprise",
+    "orgCode": "SURYASANC_HQ",
+    "contactEmail": "pratyaksha@suryasanc.in",
+    "tier": "Enterprise Multi-Site",
+    "maxCameras": 64,
+    "created": "2026-01-15"
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "usr_superadmin",
+    "username": "superadmin",
+    "email": "pratyaksha@suryasanc.in",
+    "role": "Super Admin",
+    "orgId": "org_suryasanc",
+    "orgName": "SuryaSANC Enterprise",
+    "status": "Active"
+  },
+  {
+    "id": "usr_operator1",
+    "username": "kerala_operator",
+    "email": "operator@kerala.gov.in",
+    "role": "Operator",
+    "orgId": "org_suryasanc",
+    "orgName": "SuryaSANC Enterprise",
+    "status": "Active"
+  }
+]

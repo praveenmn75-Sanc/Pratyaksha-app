@@ -1,0 +1,13 @@
+[
+  {
+    "id": "cam_anpr_1",
+    "camName": "ANPR_TEST_C1",
+    "rtsp": "rtsp://admin:pass@ip:554/profile1",
+    "area": "Thrissur Division",
+    "subArea": "Town Centre",
+    "lat": "10.5276",
+    "lng": "76.2144",
+    "orgId": "org_kfd",
+    "status": "ONLINE"
+  }
+]

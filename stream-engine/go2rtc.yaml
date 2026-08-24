@@ -1,0 +1,15 @@
+api:
+  listen: ":1984"
+  origin: "*"
+
+rtsp:
+  listen: "127.0.0.1:8554"
+
+webrtc:
+  listen: ":8555"
+
+streams:
+  anpr_test_c1:
+    - "rtsp://admin:surya@321@192.168.100.229:554/profile1"
+  face_test_c1:
+    - "rtsp://admin:123456@192.168.100.227:554/profile1"

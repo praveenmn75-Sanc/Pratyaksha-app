@@ -1,0 +1,21 @@
+{
+  "ANPR_TEST_C1:Traffic - ANPR & ATCC": {
+    "camName": "ANPR_TEST_C1",
+    "appModule": "Traffic - ANPR & ATCC",
+    "roiName": "TEST",
+    "type": "TRIPWIRE",
+    "direction": "BI",
+    "coordinates": {
+      "pointA": {
+        "x": 6,
+        "y": 79
+      },
+      "pointB": {
+        "x": 89,
+        "y": 19
+      }
+    },
+    "configured": true,
+    "updatedAt": "2026-08-24 20:50:03"
+  }
+}

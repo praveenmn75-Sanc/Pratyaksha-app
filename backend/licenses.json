@@ -1,0 +1,15 @@
+[
+  {
+    "id": "lic_001",
+    "key": "SANC-PRATYAKSHA-ENTERPRISE-2026-GPU8",
+    "orgName": "SuryaSANC Enterprise",
+    "validUntil": "2027-12-31",
+    "cameraQuota": 64,
+    "status": "VALID / ACTIVE",
+    "features": [
+      "CUDA Acceleration",
+      "All AI Engines",
+      "Multi-Org Isolation"
+    ]
+  }
+]

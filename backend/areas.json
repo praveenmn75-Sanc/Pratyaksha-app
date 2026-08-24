@@ -1,0 +1,14 @@
+[
+  {
+    "id": "area_thrissur",
+    "parentArea": "Thrissur Division",
+    "subAreas": [
+      "Town Centre",
+      "Toll Gate",
+      "Peechi Range"
+    ],
+    "lat": "10.5276",
+    "lng": "76.2144",
+    "orgId": "org_kfd"
+  }
+]
