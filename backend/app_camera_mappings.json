@@ -1,6 +1,9 @@
 {
   "Traffic - ANPR & ATCC": [
-    "ANPR_TEST_C1"
+    "ANPR_TEST_C1",
+    "ANPR-ENTRY",
+    "ANPR_ENTRY_C1",
+    "ANPT_ENTRY_C1"
   ],
   "FACE REC": [],
   "WildWatch": [],

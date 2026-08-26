@@ -16,5 +16,23 @@
     "orgId": "org_suryasanc",
     "orgName": "SuryaSANC Enterprise",
     "status": "Active"
+  },
+  {
+    "id": "usr_1787664408487",
+    "orgId": "org_1787664408487",
+    "officerEmail": "praveen@suryasanc.in",
+    "fullName": "TZP Administrator",
+    "role": "Org Admin",
+    "passwordHash": "Surya@321",
+    "status": "Active"
+  },
+  {
+    "id": "usr_1787664457001",
+    "orgId": "org_1787664408487",
+    "officerEmail": "praveen@suryasanc.in",
+    "fullName": "TZP_DCF",
+    "role": "Org Admin",
+    "passwordHash": "Surya@321",
+    "status": "Active"
   }
 ]

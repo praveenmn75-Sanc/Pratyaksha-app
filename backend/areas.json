@@ -1,14 +1,34 @@
 [
   {
-    "id": "area_thrissur",
-    "parentArea": "Thrissur Division",
+    "id": "area_1787664509678",
+    "orgId": "org_1787664408487",
+    "parentArea": "TZP",
     "subAreas": [
-      "Town Centre",
-      "Toll Gate",
-      "Peechi Range"
-    ],
-    "lat": "10.5276",
-    "lng": "76.2144",
-    "orgId": "org_kfd"
+      "Orientation Centre"
+    ]
+  },
+  {
+    "id": "area_1787665250774",
+    "orgId": "org_1787664408497",
+    "parentArea": "TZP",
+    "subAreas": [
+      "Orientation Centre"
+    ]
+  },
+  {
+    "id": "area_1787665576277",
+    "orgId": "org_1787664408497",
+    "parentArea": "TZP",
+    "subAreas": [
+      "TZP_OC"
+    ]
+  },
+  {
+    "id": "area_1787666587326",
+    "orgId": "org_1787664408497",
+    "parentArea": "TZP",
+    "subAreas": [
+      "TZP_OC"
+    ]
   }
 ]

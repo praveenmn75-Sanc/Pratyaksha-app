@@ -7,5 +7,24 @@
     "tier": "Enterprise Multi-Site",
     "maxCameras": 64,
     "created": "2026-01-15"
+  },
+  {
+    "orgName": "TZP",
+    "tenantCode": "TZP",
+    "ssoEmail": "praveen@suryasanc.in",
+    "adminPassword": "Surya@321",
+    "licenseType": "Perpetual",
+    "cameraQuota": 32,
+    "applications": [
+      "Traffic - ANPR & ATCC",
+      "FACE REC",
+      "WildWatch",
+      "Perimeter Intrusion",
+      "Fire & Smoke"
+    ],
+    "id": "org_1787664408497",
+    "licenseKey": "PRATYAKSHA-PERP-1787664408",
+    "activated": false,
+    "created": "2026-08-25"
   }
 ]

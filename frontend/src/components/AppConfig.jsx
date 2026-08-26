@@ -1,563 +1,448 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Zap, Cpu, Play, Square, RotateCcw, Save, Camera, Layers, 
-  CheckCircle2, AlertCircle, ChevronUp, ChevronDown, Crosshair, HelpCircle, Tag
+  Layers, Cpu, Camera, MapPin, Play, Square, Save, Trash2, 
+  ChevronRight, Wifi, Activity, Maximize2, Edit3, RotateCcw, Check, ShieldCheck
 } from 'lucide-react';
 
 const HOST_IP = window.location.hostname || 'localhost';
 const API_BASE_URL = `http://${HOST_IP}:8005/api/v1`;
 
-const APP_MODULES = [
-  "Traffic - ANPR & ATCC",
-  "FACE REC",
-  "WildWatch",
-  "Perimeter Intrusion",
-  "Fire & Smoke"
+const AI_ENGINES_LIST = [
+  'Traffic - ANPR & ATCC',
+  'FACE REC',
+  'WildWatch',
+  'Perimeter Intrusion',
+  'Fire & Smoke'
 ];
 
-export default function AppConfig({ setSuccessMsg }) {
-  const [openHardware, setOpenHardware] = useState(true);
-  const [openRouting, setOpenRouting] = useState(true);
-  const [openROI, setOpenROI] = useState(true);
-  const [openMapping, setOpenMapping] = useState(true);
+export default function AppConfig() {
+  const [organizations, setOrganizations] = useState(() => {
+    const saved = localStorage.getItem('pratyaksha_orgs');
+    return saved ? JSON.parse(saved) : [{ id: 'org_tzp', orgName: 'SuryaSANC Enterprise', tenantCode: 'TZP' }];
+  });
 
-  const [gpuStatus, setGpuStatus] = useState({ cuda_available: false, device_name: 'Checking...' });
-  const [engineStatus, setEngineStatus] = useState({});
-  const [computeMode, setComputeMode] = useState({});
+  const [areas, setAreas] = useState(() => {
+    const saved = localStorage.getItem('pratyaksha_areas');
+    return saved ? JSON.parse(saved) : [{ id: 'area_tzp', orgId: 'org_tzp', parentArea: 'TZP', subAreas: ['TZP_OC'] }];
+  });
 
-  const [cameras, setCameras] = useState([]);
-  const [appCameraMap, setAppCameraMap] = useState({});
-  const [allRoiStatuses, setAllRoiStatuses] = useState({});
+  const [cameras, setCameras] = useState(() => {
+    const saved = localStorage.getItem('pratyaksha_cams');
+    return saved ? JSON.parse(saved) : [{ id: 'cam_anpr_entry', orgId: 'org_tzp', area: 'TZP', subArea: 'TZP_OC', camName: 'ANPR_TEST_ENTRY', appModule: 'Traffic - ANPR & ATCC', rtsp: 'rtsp://192.168.100.229:554/profile1' }];
+  });
 
-  // Module 3 Spatial Controls
-  const [selectedCam, setSelectedCam] = useState('ANPR_TEST_C1');
-  const [selectedApp, setSelectedApp] = useState('Traffic - ANPR & ATCC');
-  const [roiName, setRoiName] = useState('Toll_Gate_A1');
-  const [roiDirection, setRoiDirection] = useState('BI');
+  const [activeRules, setActiveRules] = useState(() => {
+    const saved = localStorage.getItem('pratyaksha_rules');
+    return saved ? JSON.parse(saved) : [];
+  });
 
-  // Spatial Coordinates States
-  // For Traffic: Tripwire (pointA, pointB)
-  const [pointA, setPointA] = useState(null);
-  const [pointB, setPointB] = useState(null);
+  const [enginesStatus, setEnginesStatus] = useState({
+    'Traffic - ANPR & ATCC': true,
+    'FACE REC': false,
+    'WildWatch': false,
+    'Perimeter Intrusion': false,
+    'Fire & Smoke': false
+  });
 
-  // For Other Apps: Polygon ROI Free-Flow (points array)
-  const [polygonPoints, setPolygonPoints] = useState([]);
+  const [selectedModule, setSelectedModule] = useState('Traffic - ANPR & ATCC');
+  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const [selectedAreaName, setSelectedAreaName] = useState('ALL');
+  const [selectedCamId, setSelectedCamId] = useState('');
 
+  const [matrixStep, setMatrixStep] = useState(1);
+  const [drawTool, setDrawTool] = useState('TRIPWIRE_LINE'); 
+  const [ruleName, setRuleName] = useState('');
+  const [directionLogic, setDirectionLogic] = useState('INBOUND_ENTRY');
+  const [points, setPoints] = useState([]);
+  
   const canvasRef = useRef(null);
-  const isTrafficApp = selectedApp === "Traffic - ANPR & ATCC";
+  const [frameCount, setFrameCount] = useState(0);
 
-  const fetchAllData = () => {
+  useEffect(() => {
+    localStorage.setItem('pratyaksha_rules', JSON.stringify(activeRules));
+  }, [activeRules]);
+
+  const syncAllModulesData = () => {
     Promise.all([
-      fetch(`${API_BASE_URL}/system/gpu-status`).then(r => r.json()).catch(() => ({})),
-      fetch(`${API_BASE_URL}/engines`).then(r => r.json()).catch(() => ({})),
-      fetch(`${API_BASE_URL}/app-compute/config`).then(r => r.json()).catch(() => ({})),
-      fetch(`${API_BASE_URL}/cameras`).then(r => r.json()).catch(() => []),
-      fetch(`${API_BASE_URL}/app-cameras`).then(r => r.json()).catch(() => ({})),
-      fetch(`${API_BASE_URL}/roi/all-status`).then(r => r.json()).catch(() => ({}))
-    ])
-    .then(([gpuData, engData, compData, camData, mapData, roiData]) => {
-      setGpuStatus(gpuData);
-      setEngineStatus(engData);
-      setComputeMode(compData);
-      setCameras(camData || []);
-      setAppCameraMap(mapData || {});
-      setAllRoiStatuses(roiData || {});
-
-      if (camData && camData.length > 0 && !selectedCam) {
-        setSelectedCam(camData[0].camName);
+      fetch(`${API_BASE_URL}/admin/organizations`).then(r => r.json()).catch(() => null),
+      fetch(`${API_BASE_URL}/admin/areas`).then(r => r.json()).catch(() => null),
+      fetch(`${API_BASE_URL}/admin/cameras`).then(r => r.json()).catch(() => null)
+    ]).then(([orgs, ars, cams]) => {
+      if (Array.isArray(orgs) && orgs.length > 0) {
+        setOrganizations(orgs);
+        localStorage.setItem('pratyaksha_orgs', JSON.stringify(orgs));
+      }
+      if (Array.isArray(cams) && cams.length > 0) {
+        setCameras(cams);
+        localStorage.setItem('pratyaksha_cams', JSON.stringify(cams));
       }
     });
   };
 
   useEffect(() => {
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 5000);
+    syncAllModulesData();
+    const interval = setInterval(syncAllModulesData, 3000);
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch Existing Spatial Config
   useEffect(() => {
-    if (!selectedCam || !selectedApp) return;
-    fetch(`${API_BASE_URL}/roi/${selectedCam}/${selectedApp}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data && data.configured) {
-          setRoiName(data.roiName || 'Zone_Main');
-          setRoiDirection(data.direction || 'BI');
-          if (data.type === 'TRIPWIRE' && data.coordinates) {
-            setPointA(data.coordinates.pointA || null);
-            setPointB(data.coordinates.pointB || null);
-            setPolygonPoints([]);
-          } else if (data.type === 'POLYGON_ROI' && Array.isArray(data.coordinates)) {
-            setPolygonPoints(data.coordinates || []);
-            setPointA(null);
-            setPointB(null);
-          }
-        } else {
-          setRoiName(isTrafficApp ? 'Toll_Tripwire_Line' : 'Perimeter_Free_ROI');
-          setPointA(null);
-          setPointB(null);
-          setPolygonPoints([]);
-        }
-      })
-      .catch(() => {});
-  }, [selectedCam, selectedApp, isTrafficApp]);
+    if (organizations.length > 0 && !selectedOrgId) setSelectedOrgId(organizations[0].id);
+    if (cameras.length > 0 && !selectedCamId) setSelectedCamId(cameras[0].id);
+  }, [organizations, cameras]);
 
-  // Canvas Drawing & Click Logic
+  useEffect(() => {
+    let interval;
+    if (matrixStep === 2) interval = setInterval(() => setFrameCount(f => f + 1), 40);
+    return () => clearInterval(interval);
+  }, [matrixStep]);
+
+  useEffect(() => {
+    if (matrixStep !== 2 || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (points.length === 0) return;
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#06b6d4';
+    ctx.fillStyle = 'rgba(6, 182, 212, 0.2)';
+
+    if (drawTool === 'TRIPWIRE_LINE') {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.stroke();
+
+      if (points.length >= 2) {
+        const p1 = points[0];
+        const p2 = points[1];
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+
+        ctx.save();
+        ctx.translate(midX, midY);
+        ctx.rotate(angle);
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.lineTo(12, 0);
+        ctx.lineTo(0, 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      if (points.length > 2) ctx.closePath();
+      ctx.stroke();
+      ctx.fill();
+    }
+
+    points.forEach((pt, idx) => {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = idx === 0 ? '#10b981' : '#f59e0b';
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    });
+
+  }, [points, drawTool, matrixStep]);
+
   const handleCanvasClick = (e) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
 
-    if (isTrafficApp) {
-      // Tripwire logic
-      if (!pointA || (pointA && pointB)) {
-        setPointA({ x, y });
-        setPointB(null);
-      } else {
-        setPointB({ x, y });
-      }
+    if (drawTool === 'TRIPWIRE_LINE' && points.length >= 2) {
+      setPoints([{ x, y }]);
     } else {
-      // Polygon ROI Free-Flow logic
-      setPolygonPoints(prev => [...prev, { x, y }]);
+      setPoints([...points, { x, y }]);
     }
   };
 
-  const handleClearCanvas = () => {
-    setPointA(null);
-    setPointB(null);
-    setPolygonPoints([]);
+  const getGo2rtcStreamKey = (camName) => {
+    const name = (camName || '').toLowerCase();
+    if (name.includes('anpr') || name.includes('tzp')) return 'anpr_test_c1';
+    if (name.includes('face')) return 'face_test_c1';
+    return 'anpr_test_c1';
   };
 
-  // Render Canvas Lines / Polygon
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-
-    ctx.clearRect(0, 0, width, height);
-
-    if (isTrafficApp) {
-      // Draw Tripwire
-      if (pointA) {
-        const pxA = (pointA.x / 100) * width;
-        const pyA = (pointA.y / 100) * height;
-
-        ctx.fillStyle = '#f59e0b';
-        ctx.beginPath();
-        ctx.arc(pxA, pyA, 8, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillStyle = '#000';
-        ctx.font = 'bold 10px monospace';
-        ctx.fillText('A', pxA - 3, pyA + 3);
-
-        if (pointB) {
-          const pxB = (pointB.x / 100) * width;
-          const pyB = (pointB.y / 100) * height;
-
-          ctx.fillStyle = '#f59e0b';
-          ctx.beginPath();
-          ctx.arc(pxB, pyB, 8, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.fillStyle = '#000';
-          ctx.fillText('B', pxB - 3, pyB + 3);
-
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.moveTo(pxA, pyA);
-          ctx.lineTo(pxB, pyB);
-          ctx.stroke();
-        }
-      }
-    } else {
-      // Draw Multi-Point Polygon ROI
-      if (polygonPoints.length > 0) {
-        ctx.strokeStyle = '#06b6d4';
-        ctx.fillStyle = 'rgba(6, 182, 212, 0.25)';
-        ctx.lineWidth = 3;
-
-        ctx.beginPath();
-        polygonPoints.forEach((pt, idx) => {
-          const px = (pt.x / 100) * width;
-          const py = (pt.y / 100) * height;
-
-          if (idx === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-
-          // Draw Vertex
-          ctx.fillStyle = '#22d3ee';
-          ctx.beginPath();
-          ctx.arc(px, py, 6, 0, 2 * Math.PI);
-          ctx.fill();
-        });
-
-        if (polygonPoints.length > 2) {
-          ctx.closePath();
-          ctx.fill();
-        }
-        ctx.stroke();
-      }
-    }
-  }, [pointA, pointB, polygonPoints, isTrafficApp]);
-
-  // Save Spatial Rules
-  const handleSaveROI = () => {
-    let modeType = isTrafficApp ? 'TRIPWIRE' : 'POLYGON_ROI';
-    let coords = isTrafficApp ? { pointA, pointB } : polygonPoints;
-
-    if (isTrafficApp && (!pointA || !pointB)) {
-      alert("Please click twice on the image to set Point A and Point B for Tripwire.");
-      return;
-    }
-
-    if (!isTrafficApp && polygonPoints.length < 3) {
-      alert("Please click at least 3 points on the image to bound a Polygon ROI.");
-      return;
-    }
-
-    fetch(`${API_BASE_URL}/roi/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        camName: selectedCam,
-        appModule: selectedApp,
-        roiName: roiName || 'Default_Zone',
-        type: modeType,
-        direction: roiDirection,
-        coordinates: coords
-      })
-    })
-    .then(r => r.json())
-    .then(res => {
-      if (setSuccessMsg) setSuccessMsg(res.message);
-      fetchAllData();
-    });
-  };
-
-  const handleEngineControl = (appModule, action) => {
-    const dev = computeMode[appModule] || 'gpu';
-    fetch(`${API_BASE_URL}/engine/control`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ appModule, action, device: dev })
-    })
-    .then(r => r.json())
-    .then(res => {
-      if (setSuccessMsg) setSuccessMsg(res.message);
-      fetchAllData();
-    });
-  };
-
-  const toggleCameraMapping = (appModule, camName) => {
-    const currentCams = appCameraMap[appModule] || [];
-    const isMapped = currentCams.includes(camName);
-    const updated = isMapped ? currentCams.filter(c => c !== camName) : [...currentCams, camName];
-
-    fetch(`${API_BASE_URL}/app-cameras/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ appModule, cameraNames: updated })
-    })
-    .then(r => r.json())
-    .then(res => {
-      setAppCameraMap(res.mappings);
-      if (setSuccessMsg) setSuccessMsg(`Updated camera mapping for [${appModule}]`);
-    });
-  };
+  const activeTargetCam = cameras.find(c => c.id === selectedCamId) || cameras[0] || { camName: 'ANPR_TEST_ENTRY', rtsp: 'rtsp://192.168.100.229:554/profile1' };
 
   return (
     <div className="space-y-6 font-mono text-xs">
       
-      {/* MODULE 1: COMPUTE ACCELERATION */}
-      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-        <button 
-          onClick={() => setOpenHardware(!openHardware)}
-          className="w-full flex items-center justify-between text-sm font-extrabold text-white uppercase tracking-wider cursor-pointer"
-        >
-          <div className="flex items-center gap-2">
-            <Zap size={18} className="text-amber-400" /> Module 1: System Hardware &amp; Compute Acceleration Engine
-          </div>
-          {openHardware ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
-
-        {openHardware && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
-              <div className="text-slate-500 font-bold uppercase text-[10px]">CUDA Acceleration</div>
-              <div className="text-sm font-extrabold text-emerald-400 flex items-center gap-1.5">
-                <CheckCircle2 size={16} /> Active (CUDA)
-              </div>
-            </div>
-
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
-              <div className="text-slate-500 font-bold uppercase text-[10px]">Detected GPU Model</div>
-              <div className="text-sm font-extrabold text-cyan-300 truncate">
-                {gpuStatus.device_name || 'NVIDIA GeForce RTX 4060'}
-              </div>
-            </div>
-
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
-              <div className="text-slate-500 font-bold uppercase text-[10px]">Tensor Cores Status</div>
-              <div className="text-sm font-extrabold text-amber-400">Standard CUDA Cores</div>
-            </div>
-
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
-              <div className="text-slate-500 font-bold uppercase text-[10px]">Compute Capability</div>
-              <div className="text-sm font-extrabold text-white">8.9</div>
-            </div>
-          </div>
-        )}
+      {/* HEADER BAR */}
+      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-5 shadow-2xl flex items-center justify-between">
+        <div>
+          <h1 className="text-sm font-extrabold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+            <Layers size={18} /> APP CONFIGURATION &amp; REAL-TIME SPATIAL ROI
+          </h1>
+          <p className="text-slate-400 text-[10px]">Compute Execution Routing, Interactive RTSP Vector Tripwire Drawing &amp; Global Module Sync</p>
+        </div>
+        <div className="px-3 py-1 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 font-extrabold rounded-xl text-[10px]">
+          {AI_ENGINES_LIST.length} Modules Online
+        </div>
       </div>
 
-      {/* MODULE 2: AI COMPUTE EXECUTION ROUTING */}
-      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-        <button 
-          onClick={() => setOpenRouting(!openRouting)}
-          className="w-full flex items-center justify-between text-sm font-extrabold text-white uppercase tracking-wider cursor-pointer"
-        >
-          <div className="flex items-center gap-2">
-            <Cpu size={18} className="text-cyan-400" /> Module 2: App-Wise AI Compute Execution Routing
-          </div>
-          {openRouting ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
+      {/* SECTION 1: AI APPLICATIONS STATUS & COMPUTE ALLOCATION */}
+      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+        <h2 className="text-xs font-extrabold text-cyan-400 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-3">
+          <Cpu size={16} /> AI APPLICATIONS STATUS &amp; COMPUTE ALLOCATION
+        </h2>
 
-        {openRouting && (
-          <div className="space-y-3 pt-2">
-            {APP_MODULES.map(app => {
-              const info = engineStatus[app] || {};
-              const isRunning = info.running;
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {AI_ENGINES_LIST.map(eng => {
+            const isRunning = enginesStatus[eng];
+            const count = cameras.filter(c => c.appModule === eng).length;
 
-              return (
-                <div key={app} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 font-bold text-sm text-white">
-                      <span>{app}</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-extrabold ${
-                        isRunning ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-900 text-slate-500'
-                      }`}>
-                        {isRunning ? `RUNNING (PID: ${info.pid})` : 'STOPPED'}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-slate-500">Script: {info.script || 'engine.py'}</div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button 
-                      onClick={() => handleEngineControl(app, isRunning ? 'restart' : 'start')}
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl uppercase flex items-center gap-1.5 cursor-pointer shadow-lg shadow-emerald-500/20"
-                    >
-                      <Play size={14} /> {isRunning ? 'Restart AI Engine' : 'Start Engine'}
-                    </button>
-
-                    {isRunning && (
-                      <button 
-                        onClick={() => handleEngineControl(app, 'stop')}
-                        className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 font-extrabold rounded-xl uppercase flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Square size={14} /> Stop
-                      </button>
-                    )}
-                  </div>
+            return (
+              <div key={eng} className={`p-4 rounded-2xl border flex flex-col justify-between space-y-4 transition ${isRunning ? 'bg-cyan-950/20 border-cyan-500/40' : 'bg-slate-950 border-slate-800'}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${isRunning ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-900 border-slate-800 text-slate-500'}`}>
+                    {isRunning ? 'ACTIVE' : 'INACTIVE'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-bold">
+                    Nodes: <span className="text-cyan-400 font-extrabold">{count}</span>
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-        )}
+
+                <div className="font-extrabold text-white text-xs">{eng}</div>
+
+                <button 
+                  onClick={() => setEnginesStatus(prev => ({ ...prev, [eng]: !prev[eng] }))}
+                  className={`w-full py-2 rounded-xl font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition text-[10px] ${
+                    isRunning 
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30' 
+                      : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 shadow-lg'
+                  }`}
+                >
+                  {isRunning ? <><Square size={12} /> STOP ENGINE</> : <><Play size={12} /> LAUNCH ENGINE</>}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* MODULE 3: DUAL-MODE SPATIAL BOUNDING TOOL (TRIPWIRE VS POLYGON ROI) */}
-      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-        <button 
-          onClick={() => setOpenROI(!openROI)}
-          className="w-full flex items-center justify-between text-sm font-extrabold text-white uppercase tracking-wider cursor-pointer"
-        >
+      {/* SECTION 2: SPATIAL ROI & TRIPWIRE CANVAS MATRIX */}
+      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-6">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h2 className="text-xs font-extrabold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+            <MapPin size={16} /> SPATIAL ROI &amp; TRIPWIRE CANVAS MATRIX
+          </h2>
+          
           <div className="flex items-center gap-2">
-            <Crosshair size={18} className="text-amber-400" /> Module 3: Interactive Spatial Bounding Tool ({isTrafficApp ? 'Tripwire Mode' : 'Free-Flow Polygon ROI'})
+            <span className={`px-3 py-1 rounded-xl text-[10px] font-bold ${matrixStep === 1 ? 'bg-amber-500 text-slate-950 font-extrabold' : 'bg-slate-900 text-slate-500'}`}>
+              1. Target Scope &amp; Node
+            </span>
+            <span className={`px-3 py-1 rounded-xl text-[10px] font-bold ${matrixStep === 2 ? 'bg-amber-500 text-slate-950 font-extrabold' : 'bg-slate-900 text-slate-500'}`}>
+              2. Interactive Canvas Drawing
+            </span>
           </div>
-          {openROI ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
+        </div>
 
-        {openROI && (
-          <div className="space-y-4 pt-2">
+        {matrixStep === 1 && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <label className="text-slate-400 text-[10px] font-bold uppercase">AI Application</label>
+                <select value={selectedModule} onChange={e => setSelectedModule(e.target.value)} className="w-full bg-slate-900 border border-slate-800 text-cyan-400 font-bold p-2.5 rounded-xl outline-none">
+                  {AI_ENGINES_LIST.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 text-[10px] font-bold uppercase">Organisation</label>
+                <select value={selectedOrgId} onChange={e => setSelectedOrgId(e.target.value)} className="w-full bg-slate-900 border border-slate-800 text-amber-400 font-bold p-2.5 rounded-xl outline-none">
+                  {organizations.map(o => <option key={o.id} value={o.id}>{o.orgName} ({o.tenantCode})</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 text-[10px] font-bold uppercase">Division Area</label>
+                <select value={selectedAreaName} onChange={e => setSelectedAreaName(e.target.value)} className="w-full bg-slate-900 border border-slate-800 text-emerald-400 font-bold p-2.5 rounded-xl outline-none">
+                  <option value="ALL">All Division Areas</option>
+                  {areas.map(a => <option key={a.id} value={a.parentArea}>{a.parentArea}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 text-[10px] font-bold uppercase">Camera Stream Node</label>
+                <select value={selectedCamId} onChange={e => setSelectedCamId(e.target.value)} className="w-full bg-slate-900 border border-slate-800 text-purple-400 font-bold p-2.5 rounded-xl outline-none">
+                  {cameras.map(c => <option key={c.id} value={c.id}>{c.camName} ({c.area || 'TZP'})</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button onClick={() => setMatrixStep(2)} className="px-6 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl flex items-center gap-2 cursor-pointer">
+                LAUNCH REAL-TIME CANVAS DRAWING <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {matrixStep === 2 && (
+          <div className="space-y-4">
             
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <div>
-                <label className="text-slate-400 block mb-1 font-bold">Select Camera Node</label>
-                <select 
-                  value={selectedCam} onChange={e => setSelectedCam(e.target.value)}
-                  className="w-full p-2.5 bg-slate-900 border border-slate-800 text-amber-400 font-bold rounded-xl outline-none"
+            <div className="flex flex-wrap items-center justify-between bg-slate-950 p-3 rounded-2xl border border-slate-800 gap-3">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => { setDrawTool('TRIPWIRE_LINE'); setPoints([]); }}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 cursor-pointer ${drawTool === 'TRIPWIRE_LINE' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-900 text-slate-400'}`}
                 >
-                  {cameras.map(c => (
-                    <option key={c.id} value={c.camName}>{c.camName}</option>
-                  ))}
-                  {cameras.length === 0 && <option value="ANPR_TEST_C1">ANPR_TEST_C1</option>}
-                </select>
+                  <Edit3 size={13} /> 2-Point Directional Tripwire
+                </button>
+                <button 
+                  onClick={() => { setDrawTool('POLYGON_ZONE'); setPoints([]); }}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 cursor-pointer ${drawTool === 'POLYGON_ZONE' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-900 text-slate-400'}`}
+                >
+                  <Maximize2 size={13} /> Multi-Point Polygon Zone
+                </button>
+                <button 
+                  onClick={() => setPoints([])}
+                  className="px-3 py-1.5 bg-slate-900 text-slate-400 hover:text-white rounded-xl text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw size={13} /> Clear Points
+                </button>
               </div>
 
-              <div>
-                <label className="text-slate-400 block mb-1 font-bold">AI Application Module</label>
-                <select 
-                  value={selectedApp} onChange={e => setSelectedApp(e.target.value)}
-                  className="w-full p-2.5 bg-slate-900 border border-slate-800 text-cyan-400 font-bold rounded-xl outline-none"
-                >
-                  {APP_MODULES.map(app => (
-                    <option key={app} value={app}>{app}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-slate-400 block mb-1 font-bold">Assigned ROI / Tripwire Name</label>
+              <div className="flex items-center gap-3">
                 <input 
-                  type="text" placeholder="e.g. Zone_North_Gate" required
-                  value={roiName} onChange={e => setRoiName(e.target.value)}
-                  className="w-full p-2.5 bg-slate-900 border border-slate-800 text-white font-bold rounded-xl outline-none"
+                  type="text" 
+                  value={ruleName} 
+                  onChange={e => setRuleName(e.target.value)} 
+                  placeholder="Rule Identifier (e.g. ENTRY_TRIPWIRE_01)" 
+                  className="bg-slate-900 border border-slate-800 text-white p-2 rounded-xl text-[10px] outline-none w-56" 
                 />
+                <select 
+                  value={directionLogic} 
+                  onChange={e => setDirectionLogic(e.target.value)} 
+                  className="bg-slate-900 border border-slate-800 text-cyan-400 font-bold p-2 rounded-xl text-[10px] outline-none"
+                >
+                  <option value="INBOUND_ENTRY">Inbound (A → B)</option>
+                  <option value="OUTBOUND_EXIT">Outbound (B → A)</option>
+                  <option value="BIDIRECTIONAL">Bi-Directional</option>
+                </select>
               </div>
-
-              {isTrafficApp ? (
-                <div>
-                  <label className="text-slate-400 block mb-1 font-bold">Vector Direction</label>
-                  <select 
-                    value={roiDirection} onChange={e => setRoiDirection(e.target.value)}
-                    className="w-full p-2.5 bg-slate-900 border border-slate-800 text-emerald-400 font-bold rounded-xl outline-none"
-                  >
-                    <option value="BI">BI-DIRECTIONAL (BOTH)</option>
-                    <option value="IN">VECTOR IN ONLY</option>
-                    <option value="OUT">VECTOR OUT ONLY</option>
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="text-slate-400 block mb-1 font-bold">Spatial Mode</label>
-                  <div className="p-2.5 bg-slate-900 border border-slate-800 text-cyan-400 font-bold rounded-xl">
-                    Polygon ROI (Free-Flow)
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Interactive Canvas Overlay */}
-            <div className="relative aspect-video bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center cursor-crosshair">
+            {/* WEBRTC LIVE FRAME BACKGROUND VIA GO2RTC WITH CANVAS OVERLAY */}
+            <div className="relative aspect-video rounded-3xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl flex flex-col justify-between p-4">
+              
               <img 
-                src={`http://${HOST_IP}:1984/api/frame.jpeg?src=${(selectedCam || 'anpr_test_c1').toLowerCase()}`} 
-                alt="Camera Frame" 
-                className="w-full h-full object-cover"
-                onError={(e) => { e.target.src = `http://${HOST_IP}:8005/static/captures/capture_1787155929706.jpg`; }}
+                src={`http://${HOST_IP}:1984/api/frame.jpeg?src=${getGo2rtcStreamKey(activeTargetCam.camName)}`} 
+                alt="WebRTC Stream Feed" 
+                className="absolute inset-0 w-full h-full object-cover z-0"
+                onError={(e) => { e.target.src = `http://${HOST_IP}:8005/static/captures/capture_init.jpg`; }}
               />
+
+              <div className="flex items-center justify-between z-20 pointer-events-none">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500 text-slate-950 font-extrabold text-[9px] rounded-lg">
+                    <Wifi size={10} /> WEBRTC LIVE STREAM
+                  </span>
+                  <span className="px-2.5 py-1 bg-slate-900/90 text-cyan-400 font-mono text-[9px] rounded-lg border border-slate-800">
+                    {activeTargetCam.camName} ({activeTargetCam.rtsp})
+                  </span>
+                </div>
+                <div className="text-[10px] text-cyan-400 font-mono flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-lg border border-slate-800">
+                  <Activity size={12} className="animate-pulse" /> 25.0 FPS | Frames: {1000 + frameCount}
+                </div>
+              </div>
 
               <canvas 
                 ref={canvasRef}
-                width={960}
-                height={540}
+                width={800}
+                height={450}
                 onClick={handleCanvasClick}
-                className="absolute inset-0 w-full h-full"
+                className="absolute inset-0 w-full h-full cursor-crosshair z-10"
               />
+
+              <div className="z-20 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-xl p-2.5 flex items-center justify-between text-[10px]">
+                <div className="text-slate-400">
+                  Points Placed: <span className="text-amber-400 font-bold">{points.length}</span> {points.map((p, i) => `[P${i+1}: ${p.x},${p.y}]`).join(' ')}
+                </div>
+                <div className="text-cyan-400 font-bold">
+                  Tool Mode: {drawTool}
+                </div>
+              </div>
+
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <div className="text-slate-400 font-bold flex items-center gap-2">
-                <HelpCircle size={16} className="text-amber-400" />
-                {isTrafficApp ? (
-                  <span>Click twice on image to set <strong className="text-amber-400">Point A</strong> and <strong className="text-cyan-400">Point B</strong> for Tripwire.</span>
-                ) : (
-                  <span>Click multiple times on image to bound <strong className="text-cyan-400">Polygon ROI Free-Flow Zone</strong>. ({polygonPoints.length} vertices added)</span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={handleClearCanvas}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer"
-                >
-                  <RotateCcw size={14} /> Clear Canvas
-                </button>
-
-                <button 
-                  onClick={handleSaveROI}
-                  className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl uppercase flex items-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20"
-                >
-                  <Save size={16} /> Save Spatial Rule
-                </button>
-              </div>
+            <div className="flex justify-between items-center pt-2">
+              <button onClick={() => setMatrixStep(1)} className="px-5 py-2 bg-slate-900 text-slate-300 font-bold rounded-xl cursor-pointer">
+                Back to Selection
+              </button>
+              <button 
+                onClick={() => {
+                  const targetCam = cameras.find(c => c.id === selectedCamId) || cameras[0];
+                  const newRule = {
+                    id: `rule_${Date.now()}`,
+                    ruleName: ruleName || `Tripwire #${activeRules.length + 1}`,
+                    module: selectedModule,
+                    camName: targetCam ? targetCam.camName : 'ANPR_TEST_ENTRY',
+                    direction: directionLogic,
+                    drawType: drawTool,
+                    coordinates: points
+                  };
+                  setActiveRules([...activeRules, newRule]);
+                  setMatrixStep(1);
+                  setRuleName('');
+                  setPoints([]);
+                  alert(`Spatial ROI Rule "${newRule.ruleName}" saved and synchronized across all modules!`);
+                }} 
+                disabled={points.length < 2}
+                className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl flex items-center gap-2 cursor-pointer shadow-lg disabled:opacity-40"
+              >
+                <Save size={14} /> SAVE &amp; SYNCHRONIZE SPATIAL TRIPWIRE
+              </button>
             </div>
 
           </div>
         )}
+
       </div>
 
-      {/* MODULE 4: PER-APPLICATION CAMERA MAPPING CONTROLS WITH ROI REFLECTION */}
-      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-        <button 
-          onClick={() => setOpenMapping(!openMapping)}
-          className="w-full flex items-center justify-between text-sm font-extrabold text-white uppercase tracking-wider cursor-pointer"
-        >
-          <div className="flex items-center gap-2">
-            <Layers size={18} className="text-emerald-400" /> Module 4: Per-Application Camera Node Mapping Controls
-          </div>
-          {openMapping ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
+      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h2 className="text-xs font-extrabold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+            <ShieldCheck size={16} /> ACTIVE TRIPWIRE RULES &amp; SYNCHRONIZED VECTOR MATRIX
+          </h2>
+          <span className="text-[10px] text-cyan-400 font-bold bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-0.5 rounded-full">
+            {activeRules.length} Active Rules
+          </span>
+        </div>
 
-        {openMapping && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            {APP_MODULES.map(app => {
-              const mappedCams = appCameraMap[app] || [];
-
-              return (
-                <div key={app} className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="font-bold text-white text-xs">{app}</span>
-                    <span className="text-[10px] font-extrabold text-cyan-400">{mappedCams.length} Nodes Assigned</span>
+        {activeRules.length > 0 ? (
+          <div className="space-y-2">
+            {activeRules.map(r => (
+              <div key={r.id} className="p-3 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between font-mono text-xs">
+                <div>
+                  <div className="font-extrabold text-white flex items-center gap-2">
+                    {r.ruleName} <span className="text-[9px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 rounded-full">{r.drawType}</span>
                   </div>
-
-                  <div className="space-y-2">
-                    {cameras.map(c => {
-                      const isChecked = mappedCams.includes(c.camName);
-                      const roiKey = `${c.camName}:${app}`;
-                      const roiInfo = allRoiStatuses[roiKey];
-
-                      return (
-                        <div key={c.id} className="bg-slate-900 p-3 rounded-xl border border-slate-800/80 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-amber-400 font-bold flex items-center gap-2">
-                              <Camera size={14} /> {c.camName} ({c.location || 'Toll Lane'})
-                            </span>
-                            <input 
-                              type="checkbox" 
-                              checked={isChecked}
-                              onChange={() => toggleCameraMapping(app, c.camName)}
-                              className="w-4 h-4 accent-cyan-500 cursor-pointer"
-                            />
-                          </div>
-
-                          {/* Dynamic Spatial Rule Reflection */}
-                          <div className="flex items-center justify-between text-[10px] pt-1 border-t border-slate-800/60">
-                            <span className="text-slate-500 flex items-center gap-1">
-                              <Tag size={12} className="text-cyan-400" /> Spatial Rule:
-                            </span>
-                            {roiInfo && roiInfo.configured ? (
-                              <span className="text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
-                                {roiInfo.roiName} ({roiInfo.type})
-                              </span>
-                            ) : (
-                              <span className="text-slate-600 italic">No ROI / Tripwire set</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {cameras.length === 0 && (
-                      <div className="text-slate-500 text-center py-2">No active cameras found.</div>
-                    )}
+                  <div className="text-slate-500 text-[10px]">
+                    Module: <span className="text-cyan-400">{r.module}</span> | Node: <span className="text-amber-400">{r.camName}</span> | Direction: <span className="text-emerald-400">{r.direction}</span> | Points: {Array.isArray(r.coordinates) ? r.coordinates.length : 0}
                   </div>
                 </div>
-              );
-            })}
+                <button onClick={() => setActiveRules(activeRules.filter(item => item.id !== r.id))} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg cursor-pointer">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-8 text-center text-slate-500 text-xs">
+            No ROI tripwire rules configured yet. Launch the canvas drawing tool above to create rules.
           </div>
         )}
       </div>

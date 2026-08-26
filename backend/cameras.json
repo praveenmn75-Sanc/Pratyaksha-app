@@ -9,5 +9,41 @@
     "lng": "76.2144",
     "orgId": "org_kfd",
     "status": "ONLINE"
+  },
+  {
+    "id": "cam_1787664664626",
+    "orgId": "org_1787664408487",
+    "appModule": "Traffic - ANPR & ATCC",
+    "area": "TZP",
+    "subArea": "Orientation Centre",
+    "camName": "ANPR-ENTRY",
+    "rtsp": "rtsp://admin:Surya@321@192.168.100.229:554/profile1",
+    "lat": "10.491952",
+    "lng": "76.2896603",
+    "status": "ONLINE"
+  },
+  {
+    "id": "cam_1787665617753",
+    "orgId": "org_1787664408497",
+    "appModule": "Traffic - ANPR & ATCC",
+    "area": "TZP",
+    "subArea": "Orientation Centre",
+    "camName": "ANPR_ENTRY_C1",
+    "rtsp": "rtsp://192.168.100.229:554/profile1",
+    "lat": "10.491952",
+    "lng": "76.2896603",
+    "status": "ONLINE"
+  },
+  {
+    "id": "cam_1787666639019",
+    "orgId": "org_1787664408497",
+    "appModule": "Traffic - ANPR & ATCC",
+    "area": "TZP",
+    "subArea": "TZP_OC",
+    "camName": "ANPT_ENTRY_C1",
+    "rtsp": "rtsp://192.168.100.229:554/profile1",
+    "lat": "10.491952",
+    "lng": "76.2896603",
+    "status": "ONLINE"
   }
 ]

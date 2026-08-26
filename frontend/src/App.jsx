@@ -1,201 +1,209 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import AdminPage from './pages/AdminPage';
-import { Lock, ArrowRight, Eye, ShieldCheck, Cpu } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Activity, 
+  Grid, 
+  ShieldAlert, 
+  FileText, 
+  Sliders, 
+  Shield, 
+  Lock, 
+  ArrowRight, 
+  Cpu, 
+  Eye, 
+  LogOut 
+} from 'lucide-react';
 
-const AuthContext = createContext(null);
+import CommandCentre from './components/CommandCentre';
+import LiveMatrix from './components/LiveMatrix';
+import EventsAlerts from './components/EventsAlerts';
+import Hotlist from './components/Hotlist';
+import AppConfig from './components/AppConfig';
+import AdminConsole from './components/AdminConsole';
 
-export function AuthProvider({ children }) {
-  // Read session token explicitly
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('pratyaksha_user_email');
-    return (saved && saved.trim() !== '') ? saved : null;
-  });
-
-  const login = (email) => {
-    localStorage.setItem('pratyaksha_user_email', email);
-    setUser(email);
-  };
-
-  const logout = () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    setUser(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
-  return useContext(AuthContext);
-}
-
-// Strict Route Guard Component
-function ProtectedRoute({ children }) {
-  const { user } = useAuth();
-  const location = useLocation();
-
-  // Strict check: If user state is empty or invalid, redirect immediately to /login
-  if (!user || typeof user !== 'string' || user.trim() === '') {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  return children;
-}
-
-function LoginPage() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { login, user } = useAuth();
-  
-  const [email, setEmail] = useState('pratyaksha@suryasanc.in');
-  const [password, setPassword] = useState('••••••••••••');
-
-  const fromPath = location.state?.from?.pathname || '/admin/command-center';
-
-  useEffect(() => {
-    if (user && user.trim() !== '') {
-      navigate(fromPath, { replace: true });
-    }
-  }, [user, navigate, fromPath]);
+export default function App() {
+  // Enforce locked state by default (requires explicit login)
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [officerEmail, setOfficerEmail] = useState('pratyaksha@suryasanc.in');
+  const [password, setPassword] = useState('••••••••');
+  const [activeModule, setActiveModule] = useState('Command Centre');
 
   const handleLogin = (e) => {
-    e.preventDefault();
-    login(email);
-    navigate(fromPath, { replace: true });
+    if (e) e.preventDefault();
+    setIsAuthenticating(true);
+    setTimeout(() => {
+      setIsAuthenticating(false);
+      setIsAuthenticated(true);
+    }, 400);
   };
 
-  return (
-    <div className="h-screen w-screen bg-[#050814] flex items-center justify-center p-6 font-mono relative overflow-hidden">
-      <div className="absolute w-[700px] h-[700px] bg-gradient-to-tr from-pink-600/20 via-fuchsia-500/10 to-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
+  const navItems = [
+    { name: 'Command Centre', icon: Activity },
+    { name: 'Live Matrix', icon: Grid },
+    { name: 'Events & Alerts', icon: ShieldAlert },
+    { name: 'Hotlist', icon: FileText },
+    { name: 'App Config', icon: Sliders },
+    { name: 'Admin Console', icon: Shield }
+  ];
 
-      <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-12 bg-[#070b19] border border-pink-500/30 rounded-3xl shadow-[0_0_50px_rgba(236,72,153,0.15)] overflow-hidden relative z-10">
-        <div className="md:col-span-5 bg-gradient-to-b from-slate-950 via-[#0b081a] to-slate-950 p-8 flex flex-col justify-between border-r border-slate-800/80 space-y-6">
-          <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <img src="/pratyaksha-icon.png" alt="Pratyaksha Logo" className="w-12 h-12 drop-shadow-[0_0_12px_rgba(236,72,153,0.6)] object-contain" />
-              <div>
-                <h2 className="text-base font-extrabold text-white tracking-wider">PRATYAKSHA</h2>
-                <p className="text-[9px] text-pink-400 font-bold uppercase tracking-widest">By SuryaSANC</p>
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#030611] text-white font-mono flex items-center justify-center p-6 select-none">
+        <div className="bg-[#070b19] border border-slate-800 rounded-3xl max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 overflow-hidden shadow-2xl">
+          
+          <div className="p-8 border-r border-slate-800 flex flex-col justify-between space-y-8 bg-slate-950/40">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <img 
+                  src="/pratyaksha_logo.png" 
+                  onError={(e) => { e.target.src = '/static/pratyaksha_logo.png'; }}
+                  alt="Pratyaksha Logo" 
+                  className="w-10 h-10 object-contain"
+                />
+                <span className="text-xs font-black tracking-widest text-cyan-400 uppercase">BY SURYASANC ENTERPRISE</span>
               </div>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <h3 className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-pink-200 to-cyan-300 leading-snug">
-                Pratyaksha AI Surveillance Platform
-              </h3>
-              <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
-                Next-generation Edge AI Surveillance & Defense Analytics system providing real-time perimeter intrusion monitoring, automated ANPR, face matching, and multi-tenant control.
+              <h1 className="text-xl font-extrabold text-white tracking-tight">Pratyaksha AI Surveillance Platform</h1>
+              <p className="text-slate-400 text-xs leading-relaxed">
+                Next-generation Edge AI Surveillance &amp; Defense Analytics system providing real-time perimeter intrusion monitoring, automated ANPR, face matching, and multi-tenant control.
               </p>
             </div>
 
-            <div className="space-y-2 pt-2">
-              <div className="flex items-center gap-2.5 text-[10px] text-slate-300">
-                <Cpu size={14} className="text-pink-400 flex-shrink-0" />
-                <span>Distributed AI Edge Processing</span>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 text-xs text-slate-300">
+                <Cpu className="text-cyan-400 shrink-0" size={16} /> Distributed AI Edge Processing
               </div>
-              <div className="flex items-center gap-2.5 text-[10px] text-slate-300">
-                <Eye size={14} className="text-cyan-400 flex-shrink-0" />
-                <span>ANPR, Face Rec & WildWatch Engines</span>
+              <div className="flex items-center gap-3 text-xs text-slate-300">
+                <Eye className="text-cyan-400 shrink-0" size={16} /> ANPR, Face Rec &amp; WildWatch Engines
               </div>
-              <div className="flex items-center gap-2.5 text-[10px] text-slate-300">
-                <ShieldCheck size={14} className="text-emerald-400 flex-shrink-0" />
-                <span>Enterprise Privilege-Based Security</span>
+              <div className="flex items-center gap-3 text-xs text-slate-300">
+                <Shield className="text-cyan-400 shrink-0" size={16} /> Enterprise Privilege-Based Security
               </div>
+            </div>
+
+            <div className="text-[10px] text-slate-500 pt-4 border-t border-slate-800">
+              SuryaSANC Strategic Defense &amp; Enterprise Automation
             </div>
           </div>
 
-          <div className="text-[9px] text-slate-600 font-mono border-t border-slate-900 pt-3">
-            SuryaSANC Strategic Defense & Enterprise Automation
-          </div>
-        </div>
-
-        <div className="md:col-span-7 p-8 md:p-10 flex flex-col justify-center space-y-6 bg-[#070b19]">
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 bg-gradient-to-tr from-pink-500/20 to-cyan-500/20 border border-pink-500/40 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-pink-500/10">
-              <img src="/pratyaksha-icon.png" alt="Logo Badge" className="w-10 h-10 object-contain drop-shadow-[0_0_10px_rgba(236,72,153,0.6)]" />
-            </div>
-            <div>
-              <h1 className="text-sm font-extrabold text-white uppercase tracking-wider">PRATYAKSHA ENTERPRISE AI</h1>
-              <p className="text-[10px] text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-cyan-400 font-bold uppercase tracking-widest">Surveillance & Defense Analytics Platform</p>
-            </div>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4 text-xs">
-            <div>
-              <label className="block text-[10px] text-slate-400 font-bold mb-1.5 uppercase tracking-wider">Officer Email ID</label>
-              <input 
-                type="email" 
-                value={email} 
-                onChange={e => setEmail(e.target.value)} 
-                className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold outline-none focus:border-pink-500 transition shadow-inner" 
-                required 
+          <div className="p-8 flex flex-col justify-center space-y-6">
+            <div className="text-center space-y-2">
+              <img 
+                src="/pratyaksha_logo.png" 
+                onError={(e) => { e.target.src = '/static/pratyaksha_logo.png'; }}
+                alt="Pratyaksha Logo" 
+                className="w-14 h-14 object-contain mx-auto"
               />
+              <h2 className="text-sm font-extrabold text-white uppercase tracking-wider">PRATYAKSHA ENTERPRISE AI</h2>
+              <p className="text-cyan-400 text-[10px] uppercase tracking-widest font-extrabold">SURVEILLANCE &amp; DEFENSE ANALYTICS PLATFORM</p>
             </div>
 
-            <div>
-              <label className="block text-[10px] text-slate-400 font-bold mb-1.5 uppercase tracking-wider">Authentication Code</label>
-              <div className="relative">
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">OFFICER EMAIL ID</label>
+                <input 
+                  type="email" 
+                  value={officerEmail} 
+                  onChange={e => setOfficerEmail(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-cyan-500" 
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase">AUTHENTICATION CODE</label>
                 <input 
                   type="password" 
                   value={password} 
-                  onChange={e => setPassword(e.target.value)} 
-                  className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl text-white font-bold outline-none focus:border-pink-500 transition shadow-inner" 
-                  required 
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-cyan-500" 
                 />
-                <Lock size={14} className="absolute right-3 top-3.5 text-slate-500" />
               </div>
+
+              <button 
+                type="submit" 
+                disabled={isAuthenticating}
+                className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-extrabold rounded-xl transition flex items-center justify-center gap-2 text-xs uppercase cursor-pointer"
+              >
+                {isAuthenticating ? 'AUTHENTICATING...' : <>AUTHENTICATE <ArrowRight size={14} /></>}
+              </button>
+            </form>
+
+            <div className="text-center text-[10px] text-slate-500">
+              Secure Encrypted Session | System Operational
             </div>
-
-            <button 
-              type="submit" 
-              className="w-full py-3.5 bg-gradient-to-r from-pink-500 to-cyan-500 hover:from-pink-400 hover:to-cyan-400 text-slate-950 font-extrabold rounded-xl uppercase flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-pink-500/20 transition transform active:scale-98"
-            >
-              Authenticate & Launch <ArrowRight size={16} />
-            </button>
-          </form>
-
-          <div className="text-[9px] text-center text-slate-500 font-mono">
-            Secure Encrypted Session | System Operational
           </div>
+
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-export default function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <Routes>
-          <Route path="/" element={<Navigate to="/login" replace />} />
-          <Route path="/login" element={<LoginPage />} />
+    <div className="min-h-screen bg-[#030611] text-white font-mono flex">
+      <aside className="w-64 bg-[#070b19] border-r border-slate-800/80 p-5 flex flex-col justify-between shrink-0">
+        <div className="space-y-8">
+          <div className="flex items-center gap-3">
+            <img 
+              src="/pratyaksha_logo.png" 
+              onError={(e) => { e.target.src = '/static/pratyaksha_logo.png'; }}
+              alt="Pratyaksha Logo" 
+              className="w-9 h-9 object-contain"
+            />
+            <div>
+              <div className="text-xs font-black tracking-widest text-white uppercase">PRATYAKSHA</div>
+              <div className="text-[9px] font-extrabold text-cyan-400 tracking-wider uppercase">AI SURVEILLANCE PLATFORM</div>
+            </div>
+          </div>
 
-          <Route 
-            path="/admin" 
-            element={
-              <ProtectedRoute>
-                <Navigate to="/admin/command-center" replace />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/admin/:moduleName" 
-            element={
-              <ProtectedRoute>
-                <AdminPage />
-              </ProtectedRoute>
-            } 
-          />
+          <nav className="space-y-1.5">
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-3 mb-2">MAIN NAVIGATION</div>
+            {navItems.map(item => {
+              const IconComp = item.icon;
+              return (
+                <button
+                  key={item.name}
+                  onClick={() => setActiveModule(item.name)}
+                  className={`w-full px-3.5 py-2.5 rounded-2xl font-extrabold text-xs flex items-center gap-3 transition cursor-pointer ${
+                    activeModule === item.name 
+                      ? 'bg-cyan-500/10 border border-cyan-500/50 text-cyan-300' 
+                      : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  <IconComp size={16} className={activeModule === item.name ? 'text-cyan-400' : 'text-slate-500'} />
+                  <span>{item.name}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
 
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </Router>
-    </AuthProvider>
+        <div className="space-y-3 pt-6 border-t border-slate-800/80">
+          <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl flex items-center gap-3">
+            <div className="w-7 h-7 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-black text-xs">
+              SU
+            </div>
+            <div className="overflow-hidden">
+              <div className="text-xs font-bold text-white truncate">Super Admin</div>
+              <div className="text-[9px] text-slate-500 truncate">pratyaksha@suryasanc.in</div>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => setIsAuthenticated(false)}
+            className="w-full py-2 bg-red-500/10 border border-red-500/30 text-red-400 font-bold rounded-xl text-xs hover:bg-red-500/20 cursor-pointer flex items-center justify-center gap-2"
+          >
+            <LogOut size={14} /> Secure Logout
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 p-8 overflow-y-auto">
+        {activeModule === 'Command Centre' && <CommandCentre />}
+        {activeModule === 'Live Matrix' && <LiveMatrix />}
+        {activeModule === 'Events & Alerts' && <EventsAlerts />}
+        {activeModule === 'Hotlist' && <Hotlist />}
+        {activeModule === 'App Config' && <AppConfig />}
+        {activeModule === 'Admin Console' && <AdminConsole />}
+      </main>
+    </div>
   );
 }

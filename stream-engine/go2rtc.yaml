@@ -11,5 +11,7 @@ webrtc:
 streams:
   anpr_test_c1:
     - "rtsp://admin:surya@321@192.168.100.229:554/profile1"
+  anpr_test_entry:
+    - "rtsp://admin:surya@321@192.168.100.229:554/profile1"
   face_test_c1:
     - "rtsp://admin:123456@192.168.100.227:554/profile1"

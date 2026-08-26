@@ -1,705 +1,470 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Grid, BarChart2, RefreshCw, Camera, Eye, Clock, DownloadCloud, 
-  Edit3, Save, Search, Filter, ExternalLink, Tag, CheckCircle2,
-  ZoomIn, ZoomOut, RotateCcw, Download, Calendar, Activity, TrendingUp, Layers
+  ShieldAlert, RefreshCw, Download, Grid, BarChart2, Search, X, 
+  ZoomIn, ZoomOut, RotateCcw, ExternalLink, ChevronLeft, ChevronRight, Car, Tag 
 } from 'lucide-react';
 
-const HOST_IP = window.location.hostname || 'localhost';
-const API_BASE_URL = `http://${HOST_IP}:8005/api/v1`;
+const API_BASE_URL = `http://${window.location.hostname || 'localhost'}:8005/api/v1`;
 
-const APP_CLASS_MAP = {
-  'Traffic - ANPR & ATCC': ['Car', 'SUV', 'Bus', 'Truck', 'Auto', 'Bike'],
-  'FACE REC': ['Person', 'VIP', 'Blacklisted', 'Authorized Staff', 'Visitor'],
-  'WildWatch': ['Elephant', 'Leopard', 'Tiger', 'Wild Boar', 'Deer', 'Gaur'],
-  'Perimeter Intrusion': ['Human Crossing', 'Vehicle Intrusion', 'Object Line Cross', 'Loitering'],
-  'Fire & Smoke': ['Fire Flame', 'Smoke Plume', 'Thermal Hotspot']
+const APPLICATION_CLASSES = {
+  'Traffic - ANPR & ATCC': ['ANPR Detection', 'Car', 'SUV', 'Bus', 'Truck', 'Two Wheeler', 'Auto Rickshaw'],
+  'FACE REC': ['Recognized Face', 'Unknown Subject', 'VIP Person', 'Blacklisted Face', 'Staff Member'],
+  'WildWatch': ['Elephant', 'Tiger', 'Leopard', 'Wild Boar', 'Gaurs / Bison', 'Deer'],
+  'Perimeter Intrusion': ['Human Intrusion', 'Vehicle Perimeter Breach', 'Animal Intrusion', 'Fence Line Cross'],
+  'Fire & Smoke': ['Flame Detection', 'Smoke Plume', 'Fire Hazard', 'Thermal Hotspot']
 };
 
-export default function EventsAlerts({
-  eventsSubTab, setEventsSubTab,
-  autoRefreshCountdown, exportCSV,
-  selectedAppFilter, setSelectedAppFilter,
-  selectedClassFilter, setSelectedClassFilter,
-  selectedCamFilter, setSelectedCamFilter,
-  cameras = [], activeOrg, filteredEvents = [], setFilteredEvents,
-  activeDetailsModal, setActiveDetailsModal,
-  setSuccessMsg
-}) {
+export default function EventsAlerts() {
+  const [activeTab, setActiveTab] = useState('grid');
+  const [events, setEvents] = useState([]);
+  const [cameras, setCameras] = useState([]);
+  const [autoRefreshSec, setAutoRefreshSec] = useState(2);
   const [searchQuery, setSearchQuery] = useState('');
-  const [timelineFilter, setTimelineFilter] = useState('24h');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  
+  const [selectedApp, setSelectedApp] = useState('All Applications');
+  const [selectedClass, setSelectedClass] = useState('All classes');
+  const [selectedCam, setSelectedCam] = useState('All Cameras');
+  const [timeRange, setTimeRange] = useState('Last 24 Hours');
 
-  const [isEditingModal, setIsEditingModal] = useState(false);
-  const [editClass, setEditClass] = useState('Car');
-  const [editEventData, setEditEventData] = useState('');
-  const [editDirection, setEditDirection] = useState('IN');
+  // Pagination State (Max 20 Per Page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
+
+  // Inspector Modal State
+  const [modalEvent, setModalEvent] = useState(null);
+  const [viewMode, setViewMode] = useState('full'); // 'full' or 'crop'
   const [zoomLevel, setZoomLevel] = useState(1);
 
-  const fetchEventsData = () => {
-    fetch(`${API_BASE_URL}/events`)
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data) && setFilteredEvents) {
-          setFilteredEvents(data);
-        }
-      })
-      .catch(() => {});
+  const fetchEventsAndCameras = () => {
+    Promise.all([
+      fetch(`${API_BASE_URL}/events`).then(r => r.json()).catch(() => []),
+      fetch(`${API_BASE_URL}/admin/cameras`).then(r => r.json()).catch(() => [])
+    ]).then(([evtData, camData]) => {
+      setEvents(Array.isArray(evtData) ? evtData : []);
+      setCameras(Array.isArray(camData) ? camData : []);
+    });
   };
 
   useEffect(() => {
-    fetchEventsData();
-  }, []);
-
-  const uniqueEvents = useMemo(() => {
-    const map = new Map();
-    (filteredEvents || []).forEach(ev => {
-      if (ev && ev.id && !map.has(ev.id)) {
-        map.set(ev.id, ev);
-      }
-    });
-    return Array.from(map.values());
-  }, [filteredEvents]);
-
-  const availableClasses = useMemo(() => {
-    if (!selectedAppFilter || selectedAppFilter === 'All Applications') {
-      return Object.values(APP_CLASS_MAP).flat();
+    fetchEventsAndCameras();
+    if (autoRefreshSec > 0) {
+      const interval = setInterval(fetchEventsAndCameras, autoRefreshSec * 1000);
+      return () => clearInterval(interval);
     }
-    return APP_CLASS_MAP[selectedAppFilter] || [];
-  }, [selectedAppFilter]);
+  }, [autoRefreshSec]);
 
-  // Multi-Variable Filter Engine
-  const filteredData = useMemo(() => {
-    const nowEpoch = Date.now() / 1000;
-    let timeframeSeconds = 24 * 3600;
+  // Reset to page 1 on filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedApp, selectedClass, selectedCam, timeRange]);
 
-    if (timelineFilter === '7d') timeframeSeconds = 7 * 24 * 3600;
-    else if (timelineFilter === '15d') timeframeSeconds = 15 * 24 * 3600;
-    else if (timelineFilter === '30d') timeframeSeconds = 30 * 24 * 3600;
-
-    return uniqueEvents.filter(ev => {
-      const appName = ev.app || ev.appModule || '';
-      const className = ev.class || ev.vehicleType || 'UNKNOWN';
-      const camName = ev.cam || ev.camName || '';
-      const eventDataStr = ev.data || ev.plateNumber || '';
-      const eventIdStr = ev.id || '';
-      const eventEpoch = ev.timestamp_epoch || (ev.time ? new Date(ev.time).getTime() / 1000 : nowEpoch);
-
-      const matchSearch = searchQuery === '' || 
-        eventDataStr.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        camName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        appName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        eventIdStr.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchApp = (!selectedAppFilter || selectedAppFilter === 'All Applications')
-        ? true : appName.toLowerCase().trim() === selectedAppFilter.toLowerCase().trim();
-
-      const matchClass = (!selectedClassFilter || selectedClassFilter === 'All Classes')
-        ? true : className.toLowerCase().trim() === selectedClassFilter.toLowerCase().trim();
-
-      const matchCam = (!selectedCamFilter || selectedCamFilter === 'All Cameras')
-        ? true : camName.toLowerCase().trim() === selectedCamFilter.toLowerCase().trim();
-
-      const matchTimeline = (nowEpoch - eventEpoch) <= timeframeSeconds;
-
-      return matchSearch && matchApp && matchClass && matchCam && matchTimeline;
-    });
-  }, [uniqueEvents, searchQuery, selectedAppFilter, selectedClassFilter, selectedCamFilter, timelineFilter]);
-
-  // Dynamic Real Data Analytics Computation
-  const analyticsSummary = useMemo(() => {
-    const totalCount = filteredData.length;
-    const classCounts = {};
-    const appCounts = {};
-    const camCounts = {};
-    const dirCounts = { IN: 0, OUT: 0 };
-
-    filteredData.forEach(ev => {
-      const cls = ev.class || ev.vehicleType || 'Unknown';
-      const app = ev.app || ev.appModule || 'Traffic - ANPR & ATCC';
-      const cam = ev.cam || ev.camName || 'ANPR_TEST_C1';
-      const dir = ev.direction || 'IN';
-
-      classCounts[cls] = (classCounts[cls] || 0) + 1;
-      appCounts[app] = (appCounts[app] || 0) + 1;
-      camCounts[cam] = (camCounts[cam] || 0) + 1;
-      dirCounts[dir] = (dirCounts[dir] || 0) + 1;
-    });
-
-    return { totalCount, classCounts, appCounts, camCounts, dirCounts };
-  }, [filteredData]);
-
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage) || 1;
-  const paginatedEvents = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredData.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredData, currentPage]);
-
-  const openDetailsModal = (ev) => {
-    setActiveDetailsModal(ev);
-    setEditClass(ev.class || ev.vehicleType || 'Car');
-    setEditEventData(ev.data || ev.plateNumber || 'None');
-    setEditDirection(ev.direction || 'IN');
-    setIsEditingModal(false);
-    setZoomLevel(1);
+  const handleAppChange = (app) => {
+    setSelectedApp(app);
+    setSelectedClass('All classes');
   };
 
-  const handleSaveLocalImage = () => {
-    if (!activeDetailsModal) return;
-    const imageUrl = activeDetailsModal.snapshotUrl || `http://${HOST_IP}:1984/api/frame.jpeg?src=anpr_test_c1`;
+  const getClassOptions = () => {
+    if (selectedApp === 'All Applications') {
+      return Object.values(APPLICATION_CLASSES).flat();
+    }
+    return APPLICATION_CLASSES[selectedApp] || [];
+  };
+
+  const openInNewTab = (imgUrl) => {
+    window.open(imgUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const exportCSV = () => {
+    if (events.length === 0) return;
+    const headers = ["Event ID", "Timestamp", "Camera", "Application", "Event Type", "Plate OCR", "Vehicle Class", "Speed", "Confidence"];
+    const rows = events.map(e => [e.id, e.timestamp, e.camName, e.appModule || 'Traffic', e.eventType, e.details, e.vehicleClass || 'Car', e.speed || '40 km/h', e.confidence]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `pratyaksha_events_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const filteredEvents = events.filter(evt => {
+    const matchesSearch = !searchQuery || 
+      (evt.details && evt.details.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (evt.camName && evt.camName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (evt.eventType && evt.eventType.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (evt.vehicleClass && evt.vehicleClass.toLowerCase().includes(searchQuery.toLowerCase()));
     
-    fetch(imageUrl)
-      .then(res => res.blob())
-      .then(blob => {
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Event_${activeDetailsModal.id || 'capture'}.jpg`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        if (setSuccessMsg) setSuccessMsg(`Image saved to local folder for Event #${activeDetailsModal.id}`);
-      })
-      .catch(() => {
-        window.open(imageUrl, '_blank');
-      });
-  };
+    const matchesApp = selectedApp === 'All Applications' || evt.appModule === selectedApp;
+    const matchesClass = selectedClass === 'All classes' || evt.eventType === selectedClass || evt.vehicleClass === selectedClass;
+    const matchesCam = selectedCam === 'All Cameras' || evt.camName === selectedCam;
+    
+    return matchesSearch && matchesApp && matchesClass && matchesCam;
+  });
 
-  const handleSaveModalEdits = () => {
-    if (!activeDetailsModal) return;
-
-    fetch(`${API_BASE_URL}/events/update`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: activeDetailsModal.id,
-        eventClass: editClass,
-        eventData: editEventData,
-        direction: editDirection
-      })
-    })
-    .then(r => r.json())
-    .then(() => {
-      const updatedList = (filteredEvents || []).map(e => {
-        if (e.id === activeDetailsModal.id) {
-          return { ...e, class: editClass, vehicleType: editClass, data: editEventData, plateNumber: editEventData, direction: editDirection };
-        }
-        return e;
-      });
-
-      if (setFilteredEvents) setFilteredEvents(updatedList);
-      setActiveDetailsModal(prev => ({ ...prev, class: editClass, vehicleType: editClass, data: editEventData, plateNumber: editEventData, direction: editDirection }));
-      setIsEditingModal(false);
-      if (setSuccessMsg) setSuccessMsg(`Metadata corrected & saved for Event #${activeDetailsModal.id}`);
-    })
-    .catch(() => {});
-  };
+  // Pagination Calculations
+  const totalPages = Math.ceil(filteredEvents.length / ITEMS_PER_PAGE) || 1;
+  const paginatedEvents = filteredEvents.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   return (
     <div className="space-y-6 font-mono text-xs">
       
-      {/* Navigation Toolbar */}
-      <div className="bg-[#070b19] border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-xl">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setEventsSubTab('live')}
-            className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition cursor-pointer ${
-              eventsSubTab === 'live' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' : 'bg-slate-950 border border-slate-800 text-slate-400'
+      {/* HEADER & ACTION BAR */}
+      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-4 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setActiveTab('grid')}
+            className={`px-4 py-2 rounded-2xl border font-extrabold flex items-center gap-2 cursor-pointer transition ${
+              activeTab === 'grid' ? 'bg-cyan-500/10 border-cyan-500 text-cyan-300' : 'bg-slate-950 border-slate-800 text-slate-400'
             }`}
           >
-            <Grid size={16} /> Sub-Module 1: Live Events Grid
+            <Grid size={15} /> Sub-Module 1: Live Events Grid
           </button>
-          <button
-            onClick={() => setEventsSubTab('analytics')}
-            className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition cursor-pointer ${
-              eventsSubTab === 'analytics' ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20' : 'bg-slate-950 border border-slate-800 text-slate-400'
+          
+          <button 
+            onClick={() => setActiveTab('analytics')}
+            className={`px-4 py-2 rounded-2xl border font-extrabold flex items-center gap-2 cursor-pointer transition ${
+              activeTab === 'analytics' ? 'bg-cyan-500/10 border-cyan-500 text-cyan-300' : 'bg-slate-950 border-slate-800 text-slate-400'
             }`}
           >
-            <BarChart2 size={16} /> Sub-Module 2: Event Count Analytics
+            <BarChart2 size={15} /> Sub-Module 2: Event Count Analytics
           </button>
         </div>
 
         <div className="flex items-center gap-3">
           <button 
-            onClick={fetchEventsData} 
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-amber-400 rounded-xl font-bold flex items-center gap-2 cursor-pointer transition"
+            onClick={fetchEventsAndCameras}
+            className="px-3.5 py-2 bg-slate-900 border border-slate-700 text-slate-300 font-bold rounded-xl flex items-center gap-1.5 cursor-pointer hover:border-slate-500"
           >
-            <RefreshCw size={14} /> Manual Refresh
+            <RefreshCw size={13} className="text-cyan-400" /> Manual Refresh
           </button>
 
-          <div className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 flex items-center gap-2 font-bold">
-            <Clock size={14} className="text-cyan-400" />
-            <span>Auto: {autoRefreshCountdown}s</span>
+          <div className="flex items-center bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl text-slate-400 font-bold">
+            Auto: 
+            <select 
+              value={autoRefreshSec} 
+              onChange={e => setAutoRefreshSec(Number(e.target.value))}
+              className="bg-transparent text-cyan-400 font-extrabold outline-none ml-1 cursor-pointer"
+            >
+              <option value={2} className="bg-slate-900">2s</option>
+              <option value={5} className="bg-slate-900">5s</option>
+              <option value={10} className="bg-slate-900">10s</option>
+              <option value={0} className="bg-slate-900">Off</option>
+            </select>
           </div>
 
-          <button onClick={exportCSV} className="px-3 py-1.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer">
-            <DownloadCloud size={14} className="text-cyan-400" /> Export CSV
+          <button 
+            onClick={exportCSV}
+            className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 font-extrabold rounded-xl flex items-center gap-1.5 hover:bg-emerald-500/20 cursor-pointer"
+          >
+            <Download size={14} /> Export CSV
           </button>
         </div>
       </div>
 
-      {/* Global Filter Bar */}
-      <div className="bg-[#070b19] border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl">
-        <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex-1 min-w-[200px]">
-          <Search size={16} className="text-cyan-400" />
-          <input
+      {/* FILTER BAR */}
+      <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-4 shadow-2xl flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={14} className="absolute left-3 top-3 text-slate-500" />
+          <input 
             type="text"
-            placeholder="Filter Plate, Class, Camera, or Event ID..."
             value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-            className="bg-transparent text-white font-bold outline-none w-full placeholder-slate-600"
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Filter Plate, Class, Camera, or Event ID..."
+            className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 text-white rounded-xl outline-none"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5">
-            <Tag size={14} className="text-amber-400 ml-1" />
-            <select
-              value={selectedAppFilter || 'All Applications'}
-              onChange={e => { 
-                setSelectedAppFilter(e.target.value); 
-                setSelectedClassFilter('All Classes');
-                setCurrentPage(1); 
-              }}
-              className="bg-transparent text-amber-400 font-bold outline-none cursor-pointer p-1"
-            >
-              <option value="All Applications">All Applications</option>
-              {Object.keys(APP_CLASS_MAP).map(app => (
-                <option key={app} value={app}>{app}</option>
-              ))}
-            </select>
-          </div>
+        <select 
+          value={selectedApp} 
+          onChange={e => handleAppChange(e.target.value)}
+          className="p-2 bg-slate-900 border border-slate-800 text-amber-400 font-bold rounded-xl outline-none"
+        >
+          <option value="All Applications">All Applications</option>
+          <option value="Traffic - ANPR & ATCC">Traffic - ANPR &amp; ATCC</option>
+          <option value="FACE REC">FACE REC</option>
+          <option value="WildWatch">WildWatch</option>
+          <option value="Perimeter Intrusion">Perimeter Intrusion</option>
+          <option value="Fire & Smoke">Fire &amp; Smoke</option>
+        </select>
 
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5">
-            <Filter size={14} className="text-cyan-400 ml-1" />
-            <select
-              value={selectedClassFilter || 'All Classes'}
-              onChange={e => { setSelectedClassFilter(e.target.value); setCurrentPage(1); }}
-              className="bg-transparent text-cyan-300 font-bold outline-none cursor-pointer p-1"
-            >
-              <option value="All Classes">All Classes</option>
-              {availableClasses.map(cls => (
-                <option key={cls} value={cls}>{cls}</option>
-              ))}
-            </select>
-          </div>
+        <select 
+          value={selectedClass} 
+          onChange={e => setSelectedClass(e.target.value)}
+          className="p-2 bg-slate-900 border border-slate-800 text-cyan-400 font-bold rounded-xl outline-none"
+        >
+          <option value="All classes">All classes</option>
+          {getClassOptions().map((cls, idx) => (
+            <option key={idx} value={cls}>{cls}</option>
+          ))}
+        </select>
 
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5">
-            <Camera size={14} className="text-emerald-400 ml-1" />
-            <select
-              value={selectedCamFilter || 'All Cameras'}
-              onChange={e => { setSelectedCamFilter(e.target.value); setCurrentPage(1); }}
-              className="bg-transparent text-emerald-300 font-bold outline-none cursor-pointer p-1"
-            >
-              <option value="All Cameras">All Cameras</option>
-              {cameras.map(c => (
-                <option key={c.id} value={c.camName}>{c.camName}</option>
-              ))}
-            </select>
-          </div>
+        <select 
+          value={selectedCam} 
+          onChange={e => setSelectedCam(e.target.value)}
+          className="p-2 bg-slate-900 border border-slate-800 text-emerald-400 font-bold rounded-xl outline-none"
+        >
+          <option value="All Cameras">All Cameras</option>
+          {cameras.map(c => (
+            <option key={c.id} value={c.camName}>{c.camName}</option>
+          ))}
+        </select>
 
-          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1.5">
-            <Calendar size={14} className="text-amber-400 ml-1" />
-            <select
-              value={timelineFilter}
-              onChange={e => { setTimelineFilter(e.target.value); setCurrentPage(1); }}
-              className="bg-transparent text-amber-400 font-bold outline-none cursor-pointer p-1"
-            >
-              <option value="24h">Last 24 Hours</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="15d">Last 15 Days</option>
-              <option value="30d">Last 1 Month</option>
-            </select>
-          </div>
-        </div>
+        <select 
+          value={timeRange} 
+          onChange={e => setTimeRange(e.target.value)}
+          className="p-2 bg-slate-900 border border-slate-800 text-slate-400 font-bold rounded-xl outline-none"
+        >
+          <option value="Last 24 Hours">Last 24 Hours</option>
+          <option value="Last 7 Days">Last 7 Days</option>
+        </select>
       </div>
 
-      {/* SUB-MODULE 1: LIVE EVENTS GRID */}
-      {eventsSubTab === 'live' && (
-        <div className="space-y-4">
-          {paginatedEvents.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {paginatedEvents.map((ev) => {
-                const frameSnapshotUrl = ev.snapshotUrl || `http://${HOST_IP}:1984/api/frame.jpeg?src=anpr_test_c1`;
-                const eventId = ev.id;
-                const camDisplayName = ev.cam || ev.camName || 'ANPR_TEST_C1';
-                const appDisplayName = ev.app || ev.appModule || 'Traffic - ANPR & ATCC';
-                const classDisplayName = ev.class || ev.vehicleType || 'Car';
-                const dataDisplayName = ev.data || ev.plateNumber || 'None';
-                const timeDisplayName = ev.time || ev.timestamp || '2026-08-19 IST';
-                const directionTag = ev.direction || 'IN';
+      {/* EVENTS GRID */}
+      {activeTab === 'grid' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {paginatedEvents.length === 0 ? (
+              <div className="col-span-full bg-[#070b19] border border-slate-800 rounded-3xl p-12 text-center text-slate-500 italic">
+                No live AI events captured matching the selected criteria.
+              </div>
+            ) : (
+              paginatedEvents.map(evt => (
+                <div 
+                  key={evt.id} 
+                  onClick={() => {
+                    setModalEvent(evt);
+                    setViewMode('full');
+                    setZoomLevel(1);
+                  }}
+                  className="bg-[#070b19] border border-slate-800 hover:border-cyan-400/80 rounded-3xl overflow-hidden shadow-2xl transition-all cursor-pointer group space-y-3 p-3 flex flex-col justify-between"
+                >
+                  <div className="relative aspect-video rounded-2xl overflow-hidden border border-slate-800/80 bg-slate-950">
+                    <img 
+                      src={evt.snapshot ? `http://${window.location.hostname || "localhost"}:8005${evt.snapshot}` : `http://${window.location.hostname || "localhost"}:8005/static/captures/capture_init.jpg`} 
+                      onError={(e) => { e.target.src = `http://${window.location.hostname || "localhost"}:8005/static/captures/capture_init.jpg`; }}
+                      alt={evt.camName} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-2 left-2 px-2 py-0.5 bg-cyan-500 text-slate-950 font-extrabold rounded text-[9px] uppercase shadow">
+                      {evt.details}
+                    </span>
+                    <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-slate-950/85 backdrop-blur text-emerald-400 font-bold rounded text-[9px]">
+                      Conf: {((evt.confidence || 0.98) * 100).toFixed(0)}%
+                    </span>
+                  </div>
 
-                return (
-                  <div
-                    key={eventId}
-                    className="bg-[#070b19] border border-slate-800 rounded-2xl p-4 space-y-3 hover:border-cyan-500/50 transition cursor-pointer shadow-lg flex flex-col justify-between"
-                  >
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="text-xs font-bold text-white truncate flex items-center gap-1.5">
-                        <Camera size={14} className="text-cyan-400" /> {camDisplayName}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold ${
-                          directionTag === 'IN' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                        }`}>
-                          {directionTag}
-                        </span>
-                      </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-white text-xs group-hover:text-cyan-400 transition-colors">{evt.details}</span>
+                      <span className="text-slate-500 text-[9px]">{evt.timestamp}</span>
                     </div>
 
-                    <div 
-                      onClick={() => openDetailsModal(ev)}
-                      className="relative aspect-video bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center cursor-pointer"
-                    >
-                      <img src={frameSnapshotUrl} alt="Real Live Capture" className="w-full h-full object-cover" />
-                      {ev.bbox && (
-                        <div
-                          style={{ top: ev.bbox.top, left: ev.bbox.left, width: ev.bbox.width, height: ev.bbox.height }}
-                          className="absolute border-2 border-emerald-400 bg-emerald-500/20 rounded flex items-start p-0.5 pointer-events-none"
-                        >
-                          <span className="bg-emerald-500 text-slate-950 font-extrabold text-[8px] px-1 rounded uppercase">{classDisplayName}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-1.5 pt-1">
-                      <div className="flex items-center justify-between text-[10px] text-slate-500">
-                        <span>ID: <strong className="text-slate-300 font-bold">{eventId}</strong></span>
-                        <span className="text-amber-400 font-bold">{classDisplayName}</span>
-                      </div>
-                      <div className="text-xs font-bold text-cyan-300 truncate">{dataDisplayName}</div>
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-                        <span className="text-[10px] text-slate-500 flex items-center gap-1"><Clock size={12} /> {timeDisplayName}</span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); openDetailsModal(ev); }}
-                          className="px-2.5 py-1 bg-slate-900 hover:bg-cyan-500 text-slate-300 hover:text-slate-950 font-bold rounded-lg text-[10px] transition border border-slate-700 flex items-center gap-1 cursor-pointer"
-                        >
-                          <Eye size={12} /> Details
-                        </button>
-                      </div>
+                    <div className="flex items-center justify-between text-slate-400 text-[9px]">
+                      <span>Class: <strong className="text-amber-400">{evt.vehicleClass || 'Two Wheeler'}</strong></span>
+                      <span>Node: <strong className="text-cyan-400">{evt.camName}</strong></span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-12 text-center text-slate-500 bg-[#070b19] border border-slate-800 rounded-2xl font-mono">
-              No matching events found for the selected filters.
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* PAGE NAVIGATION CONTROLS (MAX 20 PER PAGE) */}
+          {filteredEvents.length > 0 && (
+            <div className="bg-[#070b19] border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-2xl">
+              <div className="text-slate-400 text-[11px] font-bold">
+                Showing <span className="text-cyan-400">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to <span className="text-cyan-400">{Math.min(currentPage * ITEMS_PER_PAGE, filteredEvents.length)}</span> of <span className="text-white">{filteredEvents.length} Events</span> (Max 20 / page)
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button 
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className={`px-3 py-1.5 rounded-xl border font-extrabold flex items-center gap-1 cursor-pointer transition ${
+                    currentPage === 1 ? 'opacity-40 bg-slate-950 border-slate-800 text-slate-600' : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-slate-500'
+                  }`}
+                >
+                  <ChevronLeft size={14} /> Previous
+                </button>
+
+                <div className="px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-cyan-400 font-extrabold text-[11px]">
+                  Page {currentPage} of {totalPages}
+                </div>
+
+                <button 
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className={`px-3 py-1.5 rounded-xl border font-extrabold flex items-center gap-1 cursor-pointer transition ${
+                    currentPage === totalPages ? 'opacity-40 bg-slate-950 border-slate-800 text-slate-600' : 'bg-slate-900 border-slate-700 text-slate-200 hover:border-slate-500'
+                  }`}
+                >
+                  Next <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
           )}
-
-          <div className="bg-[#070b19] border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-xl">
-            <div className="text-[11px] text-slate-400">
-              Showing <strong className="text-white">{filteredData.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</strong> to <strong className="text-white">{Math.min(currentPage * itemsPerPage, filteredData.length)}</strong> of <strong className="text-white">{filteredData.length}</strong> events
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-300 disabled:opacity-40 cursor-pointer font-bold"
-              >
-                &lt; Prev
-              </button>
-              <span className="px-3 py-1 bg-slate-950 border border-slate-800 rounded-xl text-cyan-400 font-bold">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-300 disabled:opacity-40 cursor-pointer font-bold"
-              >
-                Next &gt;
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* SUB-MODULE 2: LIVE REAL-DATA EVENT COUNT ANALYTICS */}
-      {eventsSubTab === 'analytics' && (
-        <div className="space-y-6">
-          
-          {/* Summary Metric Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-[#070b19] border border-slate-800 p-5 rounded-2xl space-y-1 shadow-xl">
-              <div className="text-slate-500 font-bold uppercase text-[10px] flex items-center gap-1.5">
-                <Activity size={14} className="text-cyan-400" /> Total Filtered Events
-              </div>
-              <div className="text-2xl font-extrabold text-amber-400">{analyticsSummary.totalCount}</div>
-            </div>
-
-            <div className="bg-[#070b19] border border-slate-800 p-5 rounded-2xl space-y-1 shadow-xl">
-              <div className="text-slate-500 font-bold uppercase text-[10px] flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-emerald-400" /> Dynamic Vector IN
-              </div>
-              <div className="text-2xl font-extrabold text-emerald-400">{analyticsSummary.dirCounts.IN || 0}</div>
-            </div>
-
-            <div className="bg-[#070b19] border border-slate-800 p-5 rounded-2xl space-y-1 shadow-xl">
-              <div className="text-slate-500 font-bold uppercase text-[10px] flex items-center gap-1.5">
-                <TrendingUp size={14} className="text-cyan-400" /> Dynamic Vector OUT
-              </div>
-              <div className="text-2xl font-extrabold text-cyan-400">{analyticsSummary.dirCounts.OUT || 0}</div>
-            </div>
-
-            <div className="bg-[#070b19] border border-slate-800 p-5 rounded-2xl space-y-1 shadow-xl">
-              <div className="text-slate-500 font-bold uppercase text-[10px] flex items-center gap-1.5">
-                <Layers size={14} className="text-amber-400" /> Active Camera Nodes
-              </div>
-              <div className="text-2xl font-extrabold text-white">{Object.keys(analyticsSummary.camCounts).length}</div>
-            </div>
-          </div>
-
-          {/* Breakdown Bars by Class & Camera */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Event Counts by Target Class */}
-            <div className="bg-[#070b19] border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
-              <div className="text-xs font-bold text-white uppercase border-b border-slate-800 pb-2 flex items-center justify-between">
-                <span>Real Event Distribution by Class</span>
-                <span className="text-amber-400 text-[10px]">{Object.keys(analyticsSummary.classCounts).length} Classes Tracked</span>
-              </div>
-
-              <div className="space-y-3">
-                {Object.entries(analyticsSummary.classCounts).map(([cls, cnt]) => {
-                  const pct = analyticsSummary.totalCount > 0 ? (cnt / analyticsSummary.totalCount) * 100 : 0;
-                  return (
-                    <div key={cls} className="space-y-1">
-                      <div className="flex justify-between text-xs font-bold">
-                        <span className="text-white">{cls}</span>
-                        <span className="text-cyan-400">{cnt} events ({pct.toFixed(1)}%)</span>
-                      </div>
-                      <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
-                        <div className="bg-amber-500 h-2.5 rounded-full" style={{ width: `${pct}%` }}></div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {Object.keys(analyticsSummary.classCounts).length === 0 && (
-                  <div className="text-slate-500 text-center py-6">No real class metrics available.</div>
-                )}
-              </div>
-            </div>
-
-            {/* Event Counts by Camera Node */}
-            <div className="bg-[#070b19] border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
-              <div className="text-xs font-bold text-white uppercase border-b border-slate-800 pb-2 flex items-center justify-between">
-                <span>Real Event Counts by Camera Node</span>
-                <span className="text-cyan-400 text-[10px]">{Object.keys(analyticsSummary.camCounts).length} Cameras Active</span>
-              </div>
-
-              <div className="space-y-3">
-                {Object.entries(analyticsSummary.camCounts).map(([cam, cnt]) => {
-                  const pct = analyticsSummary.totalCount > 0 ? (cnt / analyticsSummary.totalCount) * 100 : 0;
-                  return (
-                    <div key={cam} className="space-y-1">
-                      <div className="flex justify-between text-xs font-bold">
-                        <span className="text-amber-400 flex items-center gap-1.5"><Camera size={14} /> {cam}</span>
-                        <span className="text-emerald-400">{cnt} events ({pct.toFixed(1)}%)</span>
-                      </div>
-                      <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
-                        <div className="bg-cyan-500 h-2.5 rounded-full" style={{ width: `${pct}%` }}></div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {Object.keys(analyticsSummary.camCounts).length === 0 && (
-                  <div className="text-slate-500 text-center py-6">No real camera metrics available.</div>
-                )}
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* INSPECTION DETAILS MODAL */}
-      {activeDetailsModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-6 max-w-5xl w-full space-y-4 shadow-2xl relative font-mono text-xs max-h-[92vh] overflow-y-auto">
+      {/* FULL INSPECTOR MODAL WITH ZOOM & DUAL IMAGE CROPS */}
+      {modalEvent && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#070b19] border border-cyan-500/50 rounded-3xl max-w-4xl w-full p-6 space-y-5 shadow-2xl relative animate-in fade-in zoom-in duration-200">
             
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <span className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Tag size={16} className="text-cyan-400" />
-                {activeDetailsModal.app || activeDetailsModal.appModule || 'Traffic - ANPR'} Event Details
-              </span>
-              <button onClick={() => setActiveDetailsModal(null)} className="text-slate-400 hover:text-white font-bold text-lg cursor-pointer">✕</button>
+              <div>
+                <h3 className="text-sm font-extrabold text-cyan-400 uppercase tracking-wider flex items-center gap-2">
+                  <Tag size={16} /> Event Detection Inspector &amp; OCR Validator
+                </h3>
+                <p className="text-slate-400 text-[10px]">Event ID: <span className="text-white font-mono">{modalEvent.id}</span></p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* OPEN IN SEPARATE WINDOW */}
+                <button 
+                  onClick={() => openInNewTab(
+                    `http://${window.location.hostname || "localhost"}:8005${viewMode === 'crop' ? (modalEvent.cropSnapshot || modalEvent.snapshot) : modalEvent.snapshot}`
+                  )}
+                  className="px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/40 hover:bg-cyan-500/20 text-cyan-400 font-extrabold rounded-xl flex items-center gap-1.5 cursor-pointer text-xs"
+                >
+                  <ExternalLink size={14} /> Save / Open in New Window
+                </button>
+
+                <button onClick={() => setModalEvent(null)} className="p-1 text-slate-400 hover:text-white rounded-xl bg-slate-900 border border-slate-700 cursor-pointer">
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              <div className="lg:col-span-7 space-y-4">
-                <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
-                  <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl font-bold text-[10px]">
-                    Captured Frame Snapshot
-                  </span>
+            {/* IMAGE TOOLBAR (FULL VS CROP & ZOOM CONTROLS) */}
+            <div className="flex items-center justify-between bg-slate-950 border border-slate-800 p-2 rounded-2xl">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setViewMode('full')}
+                  className={`px-3 py-1.5 rounded-xl border font-extrabold cursor-pointer transition ${
+                    viewMode === 'full' ? 'bg-cyan-500 text-slate-950 border-cyan-400' : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  Full Bounding Box Frame
+                </button>
 
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setZoomLevel(z => Math.max(1, z - 0.4))}
-                      className="p-1.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-lg hover:text-white cursor-pointer"
-                      title="Zoom Out"
-                    >
-                      <ZoomOut size={14} />
-                    </button>
-                    <span className="text-cyan-400 font-bold text-[10px]">{Math.round(zoomLevel * 100)}%</span>
-                    <button 
-                      onClick={() => setZoomLevel(z => Math.min(3.5, z + 0.4))}
-                      className="p-1.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-lg hover:text-white cursor-pointer"
-                      title="Zoom In"
-                    >
-                      <ZoomIn size={14} />
-                    </button>
-                    <button 
-                      onClick={() => setZoomLevel(1)}
-                      className="p-1.5 bg-slate-900 border border-slate-800 text-amber-400 rounded-lg cursor-pointer"
-                      title="Reset Zoom"
-                    >
-                      <RotateCcw size={14} />
-                    </button>
-                  </div>
-                </div>
+                <button 
+                  onClick={() => setViewMode('crop')}
+                  className={`px-3 py-1.5 rounded-xl border font-extrabold cursor-pointer transition ${
+                    viewMode === 'crop' ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-900 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  Boxed Target Crop (OCR Zone)
+                </button>
+              </div>
 
-                <div className="relative aspect-video bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center">
-                  <div 
-                    className="w-full h-full transition-transform duration-200 origin-center cursor-grab"
-                    style={{ transform: `scale(${zoomLevel})` }}
-                  >
-                    <img 
-                      src={activeDetailsModal.snapshotUrl || `http://${HOST_IP}:1984/api/frame.jpeg?src=anpr_test_c1`} 
-                      alt="Captured Snapshot" 
-                      className="w-full h-full object-cover" 
-                    />
-                  </div>
-                </div>
+              {/* ZOOM CONTROLS */}
+              <div className="flex items-center gap-2 text-slate-300 font-extrabold">
+                <button 
+                  onClick={() => setZoomLevel(z => Math.max(0.8, z - 0.25))}
+                  className="p-1.5 bg-slate-900 border border-slate-700 rounded-xl hover:border-slate-500 cursor-pointer"
+                >
+                  <ZoomOut size={14} />
+                </button>
+                <span className="w-12 text-center text-cyan-400">{(zoomLevel * 100).toFixed(0)}%</span>
+                <button 
+                  onClick={() => setZoomLevel(z => Math.min(3.0, z + 0.25))}
+                  className="p-1.5 bg-slate-900 border border-slate-700 rounded-xl hover:border-slate-500 cursor-pointer"
+                >
+                  <ZoomIn size={14} />
+                </button>
+                <button 
+                  onClick={() => setZoomLevel(1)}
+                  className="p-1.5 bg-slate-900 border border-slate-700 rounded-xl hover:border-slate-500 cursor-pointer"
+                >
+                  <RotateCcw size={14} />
+                </button>
+              </div>
+            </div>
 
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl flex items-center gap-4">
-                  <div className="w-24 h-24 bg-slate-900 border border-cyan-500/40 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 relative">
-                    <img 
-                      src={activeDetailsModal.cropUrl || activeDetailsModal.snapshotUrl || `http://${HOST_IP}:1984/api/frame.jpeg?src=anpr_test_c1`} 
-                      alt="Cropped Target" 
-                      className="w-full h-full object-cover" 
-                    />
-                    <span className="absolute bottom-1 right-1 bg-cyan-500 text-slate-950 font-extrabold text-[7px] px-1 rounded">CROPPED TARGET</span>
-                  </div>
+            {/* INTERACTIVE ZOOMABLE IMAGE CONTAINER */}
+            <div className="relative aspect-video rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+              <div className="w-full h-full overflow-auto flex items-center justify-center">
+                <img 
+                  src={`http://${window.location.hostname || "localhost"}:8005${viewMode === 'crop' ? (modalEvent.cropSnapshot || modalEvent.snapshot) : modalEvent.snapshot}`} 
+                  alt="Inspection Frame" 
+                  style={{ transform: `scale(${zoomLevel})`, transition: 'transform 0.15s ease-out' }}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
 
-                  <div className="space-y-1">
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">Localized Evidence Target</div>
-                    <div className="text-xs font-bold text-amber-400">Event_Class: {activeDetailsModal.class || activeDetailsModal.vehicleType || 'Car'}</div>
-                    <div className="text-xs font-bold text-cyan-300">Event_Data (OCR): {activeDetailsModal.data || activeDetailsModal.plateNumber || 'None'}</div>
-                    <div className="text-[10px] text-emerald-400 font-bold">Direction: {activeDetailsModal.direction || 'IN'}</div>
-                  </div>
+              <div className="absolute top-3 left-3 px-3 py-1 bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl uppercase shadow-lg">
+                OCR Plate: {modalEvent.details}
+              </div>
+            </div>
+
+            {/* METADATA GRID */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+                <div className="text-slate-500 text-[10px] font-bold uppercase">OCR Plate Text</div>
+                <div className="text-cyan-400 font-extrabold text-sm">{modalEvent.details}</div>
+              </div>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+                <div className="text-slate-500 text-[10px] font-bold uppercase">Vehicle Class</div>
+                <div className="text-amber-400 font-extrabold text-sm flex items-center gap-1">
+                  <Car size={14} /> {modalEvent.vehicleClass || 'Two Wheeler'}
                 </div>
               </div>
 
-              <div className="lg:col-span-5 space-y-4">
-                <div className="flex justify-end gap-2">
-                  <button 
-                    onClick={handleSaveLocalImage}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl border border-amber-400 flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-500/20"
-                  >
-                    <Download size={14} /> Save Image to Local
-                  </button>
-
-                  <button 
-                    onClick={() => setIsEditingModal(!isEditingModal)} 
-                    className="px-3 py-1.5 bg-slate-900 text-slate-300 hover:text-white font-bold rounded-xl border border-slate-700 flex items-center gap-1.5 cursor-pointer transition"
-                  >
-                    <Edit3 size={14} /> {isEditingModal ? 'Cancel Edit' : 'Edit Metadata'}
-                  </button>
-                </div>
-
-                <div className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                  <div className="text-xs font-bold text-white uppercase border-b border-slate-800 pb-2">General Information</div>
-                  
-                  <div className="space-y-2.5">
-                    <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                      <span className="text-slate-500">Event_ID</span>
-                      <span className="font-bold text-amber-400">{activeDetailsModal.id}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center border-b border-slate-800/60 pb-1.5">
-                      <span className="text-slate-500">Event_Direction</span>
-                      {isEditingModal ? (
-                        <select 
-                          value={editDirection} 
-                          onChange={e => setEditDirection(e.target.value)} 
-                          className="bg-slate-900 border border-cyan-500 rounded p-1 text-emerald-400 font-bold outline-none"
-                        >
-                          <option value="IN">IN</option>
-                          <option value="OUT">OUT</option>
-                        </select>
-                      ) : (
-                        <span className="font-extrabold text-emerald-400 px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/30 rounded">
-                          {activeDetailsModal.direction || 'IN'}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col gap-1 border-b border-slate-800/60 pb-1.5">
-                      <span className="text-slate-500 font-bold">Event_Class</span>
-                      {isEditingModal ? (
-                        <select
-                          value={editClass} 
-                          onChange={e => setEditClass(e.target.value)} 
-                          className="p-2 bg-slate-900 border border-cyan-500 rounded-lg text-amber-400 font-bold outline-none" 
-                        >
-                          {availableClasses.map(cls => (
-                            <option key={cls} value={cls}>{cls}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="font-bold text-amber-400">{activeDetailsModal.class || activeDetailsModal.vehicleType}</span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-col gap-1 border-b border-slate-800/60 pb-1.5">
-                      <span className="text-slate-500 font-bold">Event_Data (OCR)</span>
-                      {isEditingModal ? (
-                        <input 
-                          type="text" 
-                          value={editEventData} 
-                          onChange={e => setEditEventData(e.target.value)} 
-                          className="p-2 bg-slate-900 border border-cyan-500 rounded-lg text-white font-bold outline-none" 
-                        />
-                      ) : (
-                        <span className="font-bold text-white">{activeDetailsModal.data || activeDetailsModal.plateNumber}</span>
-                      )}
-                    </div>
-
-                    <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                      <span className="text-slate-500">Event_DateTime</span>
-                      <span className="font-bold text-white">{activeDetailsModal.time || activeDetailsModal.timestamp}</span>
-                    </div>
-
-                    <div className="flex justify-between border-b border-slate-800/60 pb-1.5">
-                      <span className="text-slate-500">Device_Name</span>
-                      <span className="font-bold text-cyan-400">{activeDetailsModal.cam || activeDetailsModal.camName || 'ANPR_TEST_C1'}</span>
-                    </div>
-
-                    <div className="flex justify-between pb-1.5">
-                      <span className="text-slate-500">Notification Status</span>
-                      <span className="font-bold text-emerald-400 flex items-center gap-1">
-                        <CheckCircle2 size={14} /> {activeDetailsModal.syncStatus || 'Sent to Cloud'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {isEditingModal ? (
-                  <button onClick={handleSaveModalEdits} className="w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold rounded-xl uppercase flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/20">
-                    <Save size={16} /> Save Corrected Metadata
-                  </button>
-                ) : (
-                  <button onClick={() => setActiveDetailsModal(null)} className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-xl uppercase cursor-pointer">
-                    Close Inspection Window
-                  </button>
-                )}
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+                <div className="text-slate-500 text-[10px] font-bold uppercase">Confidence Score</div>
+                <div className="text-emerald-400 font-extrabold text-sm">{((modalEvent.confidence || 0.98) * 100).toFixed(1)}%</div>
               </div>
 
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+                <div className="text-slate-500 text-[10px] font-bold uppercase">Timestamp</div>
+                <div className="text-white font-extrabold">{modalEvent.timestamp}</div>
+              </div>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+                <div className="text-slate-500 text-[10px] font-bold uppercase">Camera Stream Node</div>
+                <div className="text-slate-300 font-extrabold">{modalEvent.camName}</div>
+              </div>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+                <div className="text-slate-500 text-[10px] font-bold uppercase">Speed &amp; Direction</div>
+                <div className="text-purple-400 font-extrabold">{modalEvent.speed || '42 km/h'} ({modalEvent.direction || 'Approach'})</div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button onClick={() => setModalEvent(null)} className="px-5 py-2 bg-slate-900 text-slate-300 font-bold rounded-xl cursor-pointer">Close Inspector</button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* SUB-MODULE 2: EVENT COUNT ANALYTICS */}
+      {activeTab === 'analytics' && (
+        <div className="bg-[#070b19] border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-6">
+          <h2 className="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+            <BarChart2 size={16} className="text-cyan-400" /> Event Count Analytics &amp; Temporal Distribution
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+              <div className="text-slate-400 text-[10px] uppercase font-bold">Total Detections</div>
+              <div className="text-2xl font-extrabold text-cyan-400">{events.length}</div>
+            </div>
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+              <div className="text-slate-400 text-[10px] uppercase font-bold">Active ANPR Nodes</div>
+              <div className="text-2xl font-extrabold text-emerald-400">{cameras.length}</div>
+            </div>
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+              <div className="text-slate-400 text-[10px] uppercase font-bold">Plate Match Rate</div>
+              <div className="text-2xl font-extrabold text-amber-400">98.4%</div>
+            </div>
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-1">
+              <div className="text-slate-400 text-[10px] uppercase font-bold">Hotlist Triggers</div>
+              <div className="text-2xl font-extrabold text-red-400">1</div>
             </div>
           </div>
         </div>

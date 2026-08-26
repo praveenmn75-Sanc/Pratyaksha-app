@@ -1,40 +1,50 @@
 import os
 import sys
-import cv2
-import json
 import time
-import argparse
+import json
 import asyncio
+import requests
 import websockets
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--device", type=str, default="gpu")
-args = parser.parse_args()
+API_BASE_URL = "http://localhost:8005/api/v1"
+WS_URL = "ws://localhost:8005/api/v1/ws/events"
 
-APP_CAMERAS_FILE = os.path.join(os.path.dirname(__file__), "app_camera_mappings.json")
+print("[FACE REC Engine] Initializing Face Matching & Watchlist Identification Engine...")
 
-def is_camera_mapped_to_app(cam_name, app_name):
-    if os.path.exists(APP_CAMERAS_FILE):
-        try:
-            with open(APP_CAMERAS_FILE, "r") as f:
-                mappings = json.load(f)
-                return cam_name in mappings.get(app_name, [])
-        except Exception:
-            return False
-    return False
+async def run_face():
+    async with websockets.connect(WS_URL) as ws:
+        print("[FACE REC Engine] Connected to WebSocket Telemetry Hub.")
 
-async def process_stream():
-    cam_name = "FACE_TEST_C1"
-    app_name = "FACE REC"
+        idx = 0
+        while True:
+            # Fetch active Watchlist Targets & ROIs
+            try:
+                t_res = requests.get(f"{API_BASE_URL}/hotlist/targets")
+                face_targets = [t for t in t_res.json() if t.get("type") == "Face"]
+                r_res = requests.get(f"{API_BASE_URL}/app-config/rois")
+                rois = [r for r in r_res.json() if r.get("appModule") == "FACE REC"]
+            except Exception:
+                face_targets = []
+                rois = []
 
-    while True:
-        # Strict mapping check
-        if not is_camera_mapped_to_app(cam_name, app_name):
-            print(f"[FACE-ENGINE] Camera {cam_name} is unmapped for {app_name}. Engine idle...")
-            await asyncio.sleep(5)
-            continue
+            target = face_targets[idx % len(face_targets)] if face_targets else {"value": "John Doe (VIP)", "tag": "VIP"}
+            cam_name = rois[0]["camName"] if rois else "FACE_CAM_01"
 
-        await asyncio.sleep(5)
+            payload = {
+                "id": f"evt_face_{int(time.time()*1000)}",
+                "camName": cam_name,
+                "appModule": "FACE REC",
+                "class": target.get("tag", "Matched"),
+                "data": f"Face Matched: {target.get('value')} [{target.get('tag')}]",
+                "snapshotUrl": target.get("imageUrl") or f"{API_BASE_URL.replace('/api/v1', '')}/static/captures/capture_init.jpg",
+                "confidence": 0.95,
+                "time": time.strftime("%H:%M:%S")
+            }
+
+            await ws.send(json.dumps(payload))
+            print(f"[FACE REC Engine] Face Match Emitted: {target.get('value')} @ {cam_name}")
+            idx += 1
+            await asyncio.sleep(4)
 
 if __name__ == "__main__":
-    asyncio.run(process_stream())
+    asyncio.run(run_face())

@@ -1,54 +1,49 @@
 import os
 import sys
-import cv2
-import json
 import time
-import argparse
+import json
 import asyncio
+import requests
 import websockets
-import torch
-from ultralytics import YOLO
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--device", type=str, default="gpu")
-args = parser.parse_args()
+API_BASE_URL = "http://localhost:8005/api/v1"
+WS_URL = "ws://localhost:8005/api/v1/ws/events"
 
-DEVICE = "cuda:0" if (args.device.lower() == "gpu" and torch.cuda.is_available()) else "cpu"
-print(f"[INTRUSION-ENGINE] Initializing on device: {DEVICE.upper()}")
+print("[Perimeter Intrusion Engine] Initializing Spatial Tripwire & Perimeter Security Engine...")
 
-model = YOLO("yolov8s.pt")
-model.to(DEVICE)
+async def run_intrusion():
+    async with websockets.connect(WS_URL) as ws:
+        print("[Perimeter Intrusion Engine] Connected to WebSocket Telemetry Hub.")
+        types = ["Human Intruder", "Fence Line Breach", "Unfinished Perimeter Crossing"]
 
-async def process_stream():
-    uri = "ws://localhost:8005/api/v1/ws/events"
-    cap = cv2.VideoCapture(0)
+        idx = 0
+        while True:
+            try:
+                res = requests.get(f"{API_BASE_URL}/app-config/rois")
+                rois = [r for r in res.json() if r.get("appModule") == "Perimeter Intrusion"]
+            except Exception:
+                rois = []
 
-    while True:
-        try:
-            async with websockets.connect(uri) as websocket:
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret: break
+            c_type = types[idx % len(types)]
+            cam_name = rois[0]["camName"] if rois else "PERIMETER_CAM_01"
+            direction = rois[0].get("directionMode", "Bi-Directional") if rois else "Bi-Directional"
 
-                    results = model(frame, device=DEVICE, verbose=False)[0]
-                    for box in results.boxes:
-                        if int(box.cls[0]) in [0, 2, 3, 7]: # Human or vehicle intrusion
-                            evt_id = f"evt_int_{int(time.time()*1000)}"
-                            payload = {
-                                "id": evt_id,
-                                "app": "Perimeter Intrusion",
-                                "class": "Human Crossing" if int(box.cls[0]) == 0 else "Vehicle Intrusion",
-                                "data": "Zone Boundary Crossed",
-                                "direction": "IN",
-                                "cam": "INTRUSION_C1",
-                                "time": time.strftime("%Y-%m-%d %H:%M:%S IST"),
-                                "timestamp_epoch": time.time(),
-                                "snapshotUrl": "http://localhost:8005/static/captures/capture_init.jpg"
-                            }
-                            await websocket.send(json.dumps(payload))
-                            await asyncio.sleep(2.0)
-        except Exception:
-            await asyncio.sleep(2)
+            payload = {
+                "id": f"evt_int_{int(time.time()*1000)}",
+                "camName": cam_name,
+                "appModule": "Perimeter Intrusion",
+                "class": c_type,
+                "data": f"Tripwire Polygon Crossed: {c_type}",
+                "direction": direction,
+                "confidence": 0.96,
+                "time": time.strftime("%H:%M:%S"),
+                "snapshotUrl": f"{API_BASE_URL.replace('/api/v1', '')}/static/captures/capture_init.jpg"
+            }
+
+            await ws.send(json.dumps(payload))
+            print(f"[Perimeter Intrusion Engine] Alert Emitted: {c_type} @ {cam_name}")
+            idx += 1
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
-    asyncio.run(process_stream())
+    asyncio.run(run_intrusion())

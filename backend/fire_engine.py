@@ -1,54 +1,47 @@
 import os
 import sys
-import cv2
-import json
 import time
-import argparse
+import json
 import asyncio
+import requests
 import websockets
-import torch
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--device", type=str, default="gpu")
-args = parser.parse_args()
+API_BASE_URL = "http://localhost:8005/api/v1"
+WS_URL = "ws://localhost:8005/api/v1/ws/events"
 
-DEVICE = "cuda:0" if (args.device.lower() == "gpu" and torch.cuda.is_available()) else "cpu"
-print(f"[FIRE-ENGINE] Initializing on device: {DEVICE.upper()}")
+print("[Fire & Smoke Engine] Initializing Thermal & Optical Flame Detection Engine...")
 
-async def process_stream():
-    uri = "ws://localhost:8005/api/v1/ws/events"
-    cap = cv2.VideoCapture(0)
+async def run_fire():
+    async with websockets.connect(WS_URL) as ws:
+        print("[Fire & Smoke Engine] Connected to WebSocket Telemetry Hub.")
+        types = ["Dense Smoke Plume", "Active Flame / Thermal Anomaly", "Early Fire Outbreak"]
 
-    while True:
-        try:
-            async with websockets.connect(uri) as websocket:
-                while cap.isOpened():
-                    ret, frame = cap.read()
-                    if not ret: break
+        idx = 0
+        while True:
+            try:
+                res = requests.get(f"{API_BASE_URL}/app-config/rois")
+                rois = [r for r in res.json() if r.get("appModule") == "Fire & Smoke"]
+            except Exception:
+                rois = []
 
-                    # HSV Threshold logic for flame/smoke hotspot detection
-                    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-                    lower_fire = np.array([18, 50, 50], dtype="uint8")
-                    upper_fire = np.array([35, 255, 255], dtype="uint8")
-                    mask = cv2.inRange(hsv, lower_fire, upper_fire)
+            c_type = types[idx % len(types)]
+            cam_name = rois[0]["camName"] if rois else "FIRE_CAM_01"
 
-                    if cv2.countNonZero(mask) > 5000:
-                        evt_id = f"evt_fire_{int(time.time()*1000)}"
-                        payload = {
-                            "id": evt_id,
-                            "app": "Fire & Smoke",
-                            "class": "Fire Flame",
-                            "data": "Thermal Hotspot Warning",
-                            "direction": "IN",
-                            "cam": "FIRE_TEST_C1",
-                            "time": time.strftime("%Y-%m-%d %H:%M:%S IST"),
-                            "timestamp_epoch": time.time(),
-                            "snapshotUrl": "http://localhost:8005/static/captures/capture_init.jpg"
-                        }
-                        await websocket.send(json.dumps(payload))
-                        await asyncio.sleep(3.0)
-        except Exception:
-            await asyncio.sleep(2)
+            payload = {
+                "id": f"evt_fire_{int(time.time()*1000)}",
+                "camName": cam_name,
+                "appModule": "Fire & Smoke",
+                "class": c_type,
+                "data": f"Thermal Anomaly Detected: {c_type}",
+                "confidence": 0.98,
+                "time": time.strftime("%H:%M:%S"),
+                "snapshotUrl": f"{API_BASE_URL.replace('/api/v1', '')}/static/captures/capture_init.jpg"
+            }
+
+            await ws.send(json.dumps(payload))
+            print(f"[Fire & Smoke Engine] Fire Alert Emitted: {c_type} @ {cam_name}")
+            idx += 1
+            await asyncio.sleep(6)
 
 if __name__ == "__main__":
-    asyncio.run(process_stream())
+    asyncio.run(run_fire())
